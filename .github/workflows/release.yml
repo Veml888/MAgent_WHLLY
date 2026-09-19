@@ -73,7 +73,7 @@ jobs:
       # 标签运行：发布 Release
       - name: 发布 Release
         if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: MAgent ${{ github.ref_name }}
           body: |
