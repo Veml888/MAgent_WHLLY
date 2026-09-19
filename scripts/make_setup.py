@@ -5,9 +5,9 @@
 快捷方式 → 控制面板可卸载。
 
 前置：已安装 Inno Setup 6（winget install JRSoftware.InnoSetup），
-以及 dist/MAgent.exe（先运行 python make_exe.py）。
+以及 dist/MAgent.exe（先运行 python scripts/make_exe.py）。
 
-用法：python make_setup.py
+用法：python scripts/make_setup.py
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]  # scripts/ 的上一级 = 仓库根
 ISCC_CANDIDATES = [
     Path.home() / "AppData" / "Local" / "Programs" / "Inno Setup 6" / "iscc.exe",
     Path(r"C:\Program Files (x86)\Inno Setup 6\iscc.exe"),
@@ -42,9 +42,7 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 CloseApplications=yes
 
-[Languages]
-Name: "chinesesimplified"; MessagesFile: "{isldir}\\ChineseSimplified.isl"
-Name: "english"; MessagesFile: "compiler:Default.isl"
+{languages_section}
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务："
@@ -72,6 +70,25 @@ def find_iscc() -> Path:
     raise FileNotFoundError("找不到 iscc.exe，请先安装 Inno Setup 6：winget install JRSoftware.InnoSetup")
 
 
+ISL_URL = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl"
+
+
+def ensure_chinese_isl(iscc: Path) -> bool:
+    """确保中文向导语言包存在（CI 环境没有）；失败则回退英文向导。"""
+    dst = iscc.parent / "Languages" / "ChineseSimplified.isl"
+    if dst.is_file() and dst.stat().st_size > 20000:
+        return True
+    try:
+        import urllib.request
+
+        dst.parent.mkdir(exist_ok=True)
+        with urllib.request.urlopen(ISL_URL, timeout=60) as resp, dst.open("wb") as fh:
+            fh.write(resp.read())
+        return dst.stat().st_size > 20000
+    except Exception:
+        return False
+
+
 def get_version() -> str:
     text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     for line in text.splitlines():
@@ -85,8 +102,16 @@ def main() -> int:
         print("缺少 dist/MAgent.exe，请先运行 python make_exe.py")
         return 1
     iscc = find_iscc()
-    isldir = iscc.parent / "Languages"
-    iss_text = ISS_TEMPLATE.format(root=ROOT, version=get_version(), isldir=isldir)
+    if ensure_chinese_isl(iscc):
+        languages_section = (
+            '[Languages]\n'
+            f'Name: "chinesesimplified"; MessagesFile: "{(iscc.parent / "Languages" / "ChineseSimplified.isl")}"\n'
+            'Name: "english"; MessagesFile: "compiler:Default.isl"'
+        )
+    else:
+        print("警告：中文向导语言包不可用，安装向导退英文")
+        languages_section = '[Languages]\nName: "english"; MessagesFile: "compiler:Default.isl"'
+    iss_text = ISS_TEMPLATE.format(root=ROOT, version=get_version(), languages_section=languages_section)
     iss_path = ROOT / "build" / "installer.iss"
     iss_path.parent.mkdir(exist_ok=True)
     iss_path.write_text(iss_text, encoding="utf-8")
