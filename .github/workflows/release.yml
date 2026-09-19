@@ -62,7 +62,7 @@ jobs:
       # 非标签运行（手动触发）：产物作为 workflow artifact 供下载验证，不发布
       - name: 上传构建产物（仅手动触发时）
         if: github.ref_type != 'tag'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: |
