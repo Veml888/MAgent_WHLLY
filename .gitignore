@@ -1,0 +1,17 @@
+# 构建产物（python build_portable.py 重新生成）
+dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# 运行时本地数据（含用户偏好、会话转录、崩溃日志）
+.magent/
+
+# 编辑器
+.vscode/
+.idea/

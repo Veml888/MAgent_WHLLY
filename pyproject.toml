@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "magent"
+version = "0.1.0"
+description = "MAgent —— CUMCM 数学建模全流程 Agent 软件（BYOK 接任意 OpenAI 兼容模型）"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.40",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "rich>=13.0",
+    "PyMuPDF>=1.24",
+    "jsonschema>=4.20",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+magent = "magent.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["magent*"]
+
+[tool.setuptools.package-data]
+magent = [
+    "web/*",
+    "skills/*",
+    "skills/*/*",
+    "skills/*/*/*",
+    "skills/*/*/*/*",
+    "skills/*/*/*/*/*",
+]
