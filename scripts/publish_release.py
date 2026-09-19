@@ -17,7 +17,10 @@ from pathlib import Path
 REPO = "Veml888/MAgent_WHLLY"
 TAG = "v0.1.0"
 TITLE = "MAgent v0.1.0 · 首个可用版"
-ZIP = Path(__file__).resolve().parents[1] / "dist" / "MAgent-v0.1.0-portable.zip"
+ASSETS = [
+    Path(__file__).resolve().parents[1] / "dist" / "MAgent-v0.1.0-portable.zip",
+    Path(__file__).resolve().parents[1] / "dist" / "MAgent.exe",
+]
 
 BODY = """## MAgent v0.1.0 —— 首个可用版
 
@@ -93,9 +96,9 @@ def with_retry(fn, tries: int = 4, delay: float = 8.0):
 
 
 def main() -> int:
-    if not ZIP.is_file():
-        print(f"找不到分发包：{ZIP}")
-        return 1
+    for asset in ASSETS:
+        if not asset.is_file():
+            print(f"警告：找不到附件，跳过 {asset.name}")
     token = get_token()
 
     existing = with_retry(lambda: request(f"https://api.github.com/repos/{REPO}/releases/tags/{TAG}", token))
@@ -111,16 +114,20 @@ def main() -> int:
         release_id = rel["id"]
         print(f"Release 已创建：{rel['html_url']}")
 
-    already = any(a["name"] == ZIP.name for a in with_retry(lambda: request(f"https://api.github.com/repos/{REPO}/releases/{release_id}/assets", token)))
-    if already:
-        print("附件已存在，跳过上传")
-    else:
-        size = ZIP.stat().st_size
-        upload_url = f"https://uploads.github.com/repos/{REPO}/releases/{release_id}/assets?name={ZIP.name}"
-        print(f"上传分发包（{size / 1048576:.0f} MB）…")
-        data = ZIP.read_bytes()
-        resp = with_retry(lambda: request(upload_url, token, data=data, headers={"Content-Length": str(size)}, method="POST"))
-        print(f"附件已上传：{resp['browser_download_url']}")
+    already = {a["name"] for a in with_retry(lambda: request(f"https://api.github.com/repos/{REPO}/releases/{release_id}/assets", token))}
+    for asset in ASSETS:
+        if not asset.is_file():
+            continue
+        if asset.name in already:
+            print(f"附件已存在，跳过：{asset.name}")
+            continue
+        size = asset.stat().st_size
+        upload_url = f"https://uploads.github.com/repos/{REPO}/releases/{release_id}/assets?name={asset.name}"
+        print(f"上传 {asset.name}（{size / 1048576:.0f} MB）…")
+        data = asset.read_bytes()
+        resp = with_retry(lambda url=upload_url, data=data, size=size: request(
+            url, token, data=data, headers={"Content-Length": str(size)}, method="POST"))
+        print(f"已上传：{resp['browser_download_url']}")
     print("完成。")
     return 0
 
