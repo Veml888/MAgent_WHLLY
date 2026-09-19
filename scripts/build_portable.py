@@ -12,6 +12,10 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 import zipfile
 from pathlib import Path
 from urllib.request import urlopen
