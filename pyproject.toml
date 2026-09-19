@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "openai>=1.40",
-    "fastapi>=0.110",
+    "fastapi>=0.141.1",
     "uvicorn>=0.29",
     "rich>=13.0",
     "PyMuPDF>=1.24",
