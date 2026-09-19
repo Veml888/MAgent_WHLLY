@@ -18,6 +18,7 @@ REPO = "Veml888/MAgent_WHLLY"
 TAG = "v0.1.0"
 TITLE = "MAgent v0.1.0 · 首个可用版"
 ASSETS = [
+    Path(__file__).resolve().parents[1] / "dist" / "MAgent-Setup-v0.1.0.exe",
     Path(__file__).resolve().parents[1] / "dist" / "MAgent-v0.1.0-portable.zip",
     Path(__file__).resolve().parents[1] / "dist" / "MAgent.exe",
 ]
@@ -29,8 +30,9 @@ BYOK 接任意 OpenAI 兼容模型（默认 DeepSeek），代码级门禁保证"
 
 ### 下载
 
-- **普通用户**：下载下方 `MAgent-v0.1.0-portable.zip`（42MB，免安装 Python），解压后双击「启动MAgent.bat」
-- **开发者**：`git clone` 后 `pip install -r requirements.txt`，`python -m magent serve`
+- **普通用户（推荐）**：`MAgent-Setup-v0.1.0.exe` —— 标准安装向导，自动建快捷方式，控制面板可卸载
+- **免安装**：`MAgent.exe`（单文件，下完双击）或 `MAgent-v0.1.0-portable.zip`（绿色文件夹版）
+- 三者功能完全相同，任选其一
 
 ### 使用步骤
 
