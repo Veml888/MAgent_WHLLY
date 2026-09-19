@@ -150,7 +150,8 @@ ORDER: list[str] = list(STAGES.keys())
 
 def next_stage(manifest_statuses: dict[str, str]) -> str | None:
     """按依赖顺序找下一个可执行阶段（n_a 视为已满足上游）。"""
-    done = lambda st: st in ("complete", "n_a")
+    def done(st: str) -> bool:
+        return st in ("complete", "n_a")
     for key in ORDER:
         status = manifest_statuses.get(key, "pending")
         if status in ("pending", "failed"):

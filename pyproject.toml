@@ -35,3 +35,13 @@ magent = [
     "skills/*/*/*/*",
     "skills/*/*/*/*/*",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+# skills/ 是上游 MM_workflow 的内容层拷贝，不参与本仓库 lint
+extend-exclude = ["dist", "build", "magent/skills"]
+
+[tool.ruff.lint]
+# E4/E7/E9 语法与逻辑错误；F pyflakes（未用导入/变量）；I 导入排序；W 空白
+select = ["E4", "E7", "E9", "F", "I", "W"]

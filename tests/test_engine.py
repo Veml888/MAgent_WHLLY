@@ -1,6 +1,5 @@
 """引擎集成测试：FakeLLM + 假阶段定义，验证门禁驳回/回喂/记账闭环。"""
 
-import json
 import sys
 from pathlib import Path
 
@@ -9,6 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 
 from fake_llm import FakeLLM
+
 from magent.engine import run_stage
 from magent.manifest import ManifestStore
 from magent.pipeline import StageDef
@@ -92,7 +92,6 @@ def test_gate_reject_then_pass_loop(project, patched_stage):
     assert len(arts) == 1 and arts[0]["path"] == "docs/01-report.md"
     assert any("analysis complete" in c["action"] for c in store.data["change_log"])
     # 第一轮确实被驳回过：引擎发回了包含失败门禁的反馈
-    second_user = llm.calls[1][0]["content"] if llm.calls[1][0]["role"] == "user" else None
     gate_feedback = [m for m in llm.calls[1] if m["role"] == "user" and "驳回" in m.get("content", "")]
     assert gate_feedback, "引擎应把门禁失败原文回喂给模型"
     assert "check_fake" in gate_feedback[0]["content"]

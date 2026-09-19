@@ -10,16 +10,14 @@ import json
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
-from . import __version__, pipeline
+from . import __version__, engine, pipeline
 from . import config as config_mod
-from . import engine
 from .config import resolve_skills_root
 from .manifest import ManifestError, ManifestStore
 
@@ -203,7 +201,7 @@ def stream(root: str):
 
     def gen():
         cursor = runtime.event_id
-        yield f"retry: 3000\n\n"
+        yield "retry: 3000\n\n"
         while True:
             for event in runtime.wait_events(cursor):
                 cursor = max(cursor, event["id"])

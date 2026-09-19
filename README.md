@@ -1,5 +1,9 @@
 # MAgent —— CUMCM 数模全流程 Agent 软件
 
+[![Build & Release](https://github.com/Veml888/MAgent_WHLLY/actions/workflows/release.yml/badge.svg)](https://github.com/Veml888/MAgent_WHLLY/actions/workflows/release.yml)
+[![Release](https://img.shields.io/github/v/release/Veml888/MAgent_WHLLY)](https://github.com/Veml888/MAgent_WHLLY/releases)
+[![License: MIT](https://img.shields.io/github/license/Veml888/MAgent_WHLLY)](LICENSE)
+
 把 [MM_workflow](https://github.com/Veml888/MM_workflow) 的 8 阶段数模流水线装进一个**新手可用的桌面软件**：
 双击图标 → 弹出独立软件窗口（原生窗口，不是浏览器）→ 填自己的模型 API Key →
 传题面 → 点启动，剩下的交给流水线。
@@ -85,3 +89,8 @@
 
 本软件调用你自己的模型 API，费用由你的账号承担；竞赛使用请遵守当年国赛的
 AI 使用规范（论文含 AI 使用声明章节，流水线已内置）。
+
+## 致谢与许可
+
+- 内置 skills 内容层（`magent/skills/`）源自 [MM_workflow](https://github.com/Veml888/MM_workflow)（MIT License）
+- 本仓库以 [MIT License](LICENSE) 开源
