@@ -1,5 +1,6 @@
-# 构建产物（python build_portable.py 重新生成）
+# 构建产物（python build_portable.py / python make_exe.py 重新生成）
 dist/
+build/
 
 # Python
 __pycache__/
