@@ -4,7 +4,7 @@
 结构：runtime/（内嵌 Python + 预装依赖 + magent 包）、启动.bat、使用说明.txt
 目标用户无需安装 Python，解压双击即可。
 
-用法：python build_portable.py
+用法：python scripts/build_portable.py
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import zipfile
 from pathlib import Path
 from urllib.request import urlopen
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]  # scripts/ 的上一级 = 仓库根
 DIST = ROOT / "dist"
 BUILD = DIST / "MAgent"
 RUNTIME = BUILD / "runtime"

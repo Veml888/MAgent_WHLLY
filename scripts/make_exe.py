@@ -3,7 +3,7 @@
 用 PyInstaller 把解释器 + 依赖 + magent 包（含内置 skills/界面）压进一个 exe。
 双击即弹桌面窗口；崩溃信息写入 ~/.magent/crash.log。
 
-用法：python make_exe.py
+用法：python scripts/make_exe.py
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]  # scripts/ 的上一级 = 仓库根
 
 EXTRA_COLLECT = [
     # pywebview 的 Windows 后端（动态导入 + 自带 DLL，必须整包收集）
@@ -38,7 +38,7 @@ def main() -> int:
         "--specpath", str(ROOT / "build" / "exe"),
         "--collect-data", "magent",
         *EXTRA_COLLECT,
-        str(ROOT / "exe_entry.py"),
+        str(ROOT / "scripts" / "exe_entry.py"),
     ]
     print("构建中（约 2~5 分钟）…")
     proc = subprocess.run(cmd, cwd=ROOT)
