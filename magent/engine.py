@@ -15,7 +15,7 @@ from .agent import AgentSession
 from .config import resolve_skills_root
 from .gates import run_stage_gates
 from .llm import ContextLimitError, LLMClient, LLMError
-from .manifest import ManifestStore, ManifestError
+from .manifest import ManifestError, ManifestStore
 from .tools import FinishSignal, ToolBox
 
 READ_SCRIPT_REL = "mm-orchestrator/scripts/read_complete.py"

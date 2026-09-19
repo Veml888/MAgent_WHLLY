@@ -25,7 +25,7 @@ from rich.table import Table
 from . import __version__, pipeline
 from .config import ensure, load, resolve_skills_root
 from .engine import run_stage
-from .manifest import ManifestStore, ManifestError
+from .manifest import ManifestError, ManifestStore
 
 console = Console()
 
@@ -225,7 +225,7 @@ def _sync_skills(src: str | None) -> int:
         if cand and (Path(cand) / "mm-orchestrator" / "scripts" / "read_complete.py").is_file():
             sync_from(Path(cand), log=console.print)
             return 0
-    console.print(f"[red]未找到可用的 skills 源目录，请用 --from 指定 MM_workflow/skills 路径[/red]")
+    console.print("[red]未找到可用的 skills 源目录，请用 --from 指定 MM_workflow/skills 路径[/red]")
     return 1
 
 
