@@ -80,7 +80,8 @@ def test_gate_reject_then_pass_loop(project, patched_stage):
     cfg = {
         "skills_root": str(skills),
         "limits": {"max_turns": 20, "retry_rounds": 3, "run_timeout_sec": 60},
-        "provider": {"base_url": "http://x", "api_key": "k", "model": "m", "temperature": None},
+        "providers": [{"id": "t", "name": "T", "base_url": "http://x", "api_key": "k", "model": "m", "temperature": None}],
+        "routing": {"default": "t"},
     }
     result = run_stage(root, "analysis", cfg, log=events.append, llm=llm)
 
@@ -105,7 +106,8 @@ def test_max_turns_pauses(project, patched_stage):
     cfg = {
         "skills_root": str(skills),
         "limits": {"max_turns": 4, "retry_rounds": 1, "run_timeout_sec": 60},
-        "provider": {"base_url": "http://x", "api_key": "k", "model": "m", "temperature": None},
+        "providers": [{"id": "t", "name": "T", "base_url": "http://x", "api_key": "k", "model": "m", "temperature": None}],
+        "routing": {"default": "t"},
     }
     result = run_stage(root, "analysis", cfg, log=EVENTS.append, llm=llm)
     assert result.outcome == "paused"
@@ -123,7 +125,8 @@ def test_upstream_blocked(project, patched_stage):
     cfg = {
         "skills_root": str(skills),
         "limits": {"max_turns": 5, "retry_rounds": 1, "run_timeout_sec": 60},
-        "provider": {"base_url": "http://x", "api_key": "k", "model": "m", "temperature": None},
+        "providers": [{"id": "t", "name": "T", "base_url": "http://x", "api_key": "k", "model": "m", "temperature": None}],
+        "routing": {"default": "t"},
     }
     result = run_stage(root, "analysis", cfg, log=EVENTS.append, llm=FakeLLM([]))
     assert result.outcome == "upstream_blocked", f"detail={result.detail!r} events={EVENTS!r}"

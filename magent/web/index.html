@@ -13,7 +13,6 @@
     --bg1: #12161D;          /* 面板 */
     --bg2: #1A2029;          /* 抬升层 / 悬停 */
     --line: #232B36;         /* 边线 */
-    --line-soft: rgba(255,255,255,.07);
     --ink: #E8ECF1;          /* 正文 */
     --soft: #9AA3AE;         /* 次级文字 */
     --acc: #4ED0C4;          /* 冰青 */
@@ -34,18 +33,18 @@
     background-image:
       radial-gradient(ellipse 60% 45% at 18% -8%, rgba(106,166,255,.10), transparent),
       radial-gradient(ellipse 55% 40% at 95% 108%, rgba(78,208,196,.07), transparent);
-    display: grid; grid-template-columns: 268px 1fr; min-height: 100vh;
+    display: grid; grid-template-columns: 250px 1fr; min-height: 100vh;
   }
   ::selection { background: rgba(78,208,196,.25); }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: #2A3340; border-radius: 8px; border: 2px solid var(--bg1); }
   ::-webkit-scrollbar-track { background: transparent; }
 
-  /* ============ 左栏 ============ */
+  /* ============ 左栏（只留入口） ============ */
   aside {
     border-right: 1px solid var(--line); background: linear-gradient(180deg, var(--bg1), rgba(18,22,29,.6));
-    padding: 24px 20px; display: flex; flex-direction: column; gap: 26px;
-    position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    padding: 24px 20px; display: flex; flex-direction: column; gap: 22px;
+    position: sticky; top: 0; height: 100vh;
   }
   .brand { line-height: 1.3; }
   .brand .word {
@@ -53,11 +52,13 @@
     background: var(--acc-grad); -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   .brand .sub { color: var(--soft); font-size: 13.5px; letter-spacing: 5px; margin-top: 2px; }
-  aside h3 {
-    font-size: 13px; color: var(--soft); font-weight: 600; margin: 0 0 10px; letter-spacing: 1px;
+  .nav { display: flex; flex-direction: column; gap: 8px; }
+  .nav button {
+    width: 100%; text-align: left; padding: 10px 14px; font-size: 14.5px;
   }
-  .field { margin-bottom: 11px; }
-  label { font-size: 13px; color: var(--soft); display: block; margin-bottom: 4px; }
+  .railfoot { margin-top: auto; font-size: 12.5px; color: var(--soft); font-family: var(--mono); }
+
+  /* ============ 通用控件 ============ */
   input, select {
     width: 100%; padding: 8px 11px; font-size: 14px; font-family: var(--sans);
     border: 1px solid var(--line); border-radius: 7px; background: var(--bg0); color: var(--ink);
@@ -68,31 +69,37 @@
     outline: none; border-color: var(--acc); box-shadow: 0 0 0 3px rgba(78,208,196,.18);
   }
   input.mono { font-family: var(--mono); font-size: 13px; }
+  label { font-size: 13px; color: var(--soft); display: block; margin-bottom: 4px; }
   button {
     padding: 8px 18px; font-size: 14px; font-family: var(--sans); cursor: pointer;
     border: 1px solid var(--line); background: var(--bg2); color: var(--ink); border-radius: 7px;
     transition: background .15s, border-color .15s, box-shadow .15s;
   }
   button:hover { border-color: #3A4656; background: #1F2630; }
-  button.primary {
-    background: var(--acc-grad); border: none; color: #07131A; font-weight: 650;
-  }
+  button.primary { background: var(--acc-grad); border: none; color: #07131A; font-weight: 650; }
   button.primary:hover { box-shadow: 0 0 18px rgba(78,208,196,.35); }
+  button.danger { color: var(--fail); border-color: rgba(255,107,94,.35); }
+  button.danger:hover { background: rgba(255,107,94,.10); border-color: var(--fail); }
   button:disabled { color: var(--na); background: transparent; cursor: not-allowed; box-shadow: none; }
-  .msg { font-size: 13px; display: block; margin-top: 6px; min-height: 18px; }
+  .msg { font-size: 13px; }
   .msg.ok { color: var(--pass); } .msg.bad { color: var(--fail); }
-  .railfoot { margin-top: auto; font-size: 12.5px; color: var(--soft); font-family: var(--mono); line-height: 1.8; }
+  .spacer { flex: 1; }
+  .hint { font-size: 13px; color: var(--soft); }
+  .hidden { display: none !important; }
 
   /* ============ 主区 ============ */
   main { padding: 30px 38px 40px; max-width: 1080px; }
   main > section { margin-bottom: 40px; }
   .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 18px; }
-  .sec-head .no {
-    font-family: var(--mono); font-size: 13px; color: var(--acc); letter-spacing: 1px;
-  }
+  .sec-head .no { font-family: var(--mono); font-size: 13px; color: var(--acc); letter-spacing: 1px; }
   .sec-head h2 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: 1px; }
-  .sec-head .hint { font-size: 13px; color: var(--soft); }
-  .sec-head .spacer { flex: 1; }
+  .sec-head h3 { margin: 0; font-size: 16.5px; font-weight: 650; letter-spacing: 1px; }
+
+  .banner {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 18px; padding: 12px 16px;
+    border: 1px solid rgba(232,180,90,.4); background: rgba(232,180,90,.08); border-radius: 10px;
+    color: var(--hold); font-size: 14px;
+  }
 
   /* ---- 工序光带 ---- */
   .process { position: relative; padding-top: 4px; }
@@ -117,7 +124,6 @@
   .stop.bad .dot { background: var(--fail); border-color: var(--fail); box-shadow: 0 0 12px rgba(255,107,94,.55); }
   .stop.running .dot { animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 50% { box-shadow: 0 0 26px rgba(78,208,196,1); } }
-  .stop .num { font-family: var(--mono); font-size: 12.5px; color: var(--soft); letter-spacing: 1px; }
   .stop .name { font-size: 16.5px; font-weight: 650; margin: 2px 0 4px; letter-spacing: .5px; }
   .pill {
     display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; letter-spacing: 1px;
@@ -144,7 +150,6 @@
   .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
   @media (max-width: 1120px) { .grid4 { grid-template-columns: repeat(2, 1fr); } }
   .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 18px; }
-  .hint { font-size: 13px; color: var(--soft); }
   #log {
     background: var(--bg1); border: 1px solid var(--line); border-radius: 12px;
     height: 330px; overflow-y: auto; padding: 16px 20px;
@@ -155,6 +160,46 @@
   .inline-file { font-size: 13px; color: var(--soft); }
   .inline-file input { border: none; padding: 0; background: transparent; box-shadow: none; }
   .inline-file input:focus-visible { outline: none; }
+
+  /* ============ 设置视图（覆盖全屏） ============ */
+  #settingsView {
+    position: fixed; inset: 0; z-index: 50; overflow-y: auto;
+    background: var(--bg0);
+    background-image:
+      radial-gradient(ellipse 60% 45% at 18% -8%, rgba(106,166,255,.10), transparent),
+      radial-gradient(ellipse 55% 40% at 95% 108%, rgba(78,208,196,.07), transparent);
+    padding: 0 0 70px;
+  }
+  .ov-head {
+    position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 16px;
+    padding: 18px 38px; background: rgba(12,15,20,.92); backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--line);
+  }
+  .ov-head h2 { margin: 0; font-size: 19px; letter-spacing: 1px; }
+  .ov-body { max-width: 1000px; margin: 0 auto; padding: 30px 38px 0; display: grid; gap: 38px; }
+  .ov-body section > .sec-head { margin-bottom: 14px; }
+
+  .prov {
+    border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px 14px;
+    background: linear-gradient(180deg, var(--bg1), rgba(18,22,29,.7)); margin-bottom: 12px;
+  }
+  .prov-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .prov-head input { max-width: 260px; font-size: 15px; font-weight: 600; }
+  .prov-head button { padding: 6px 14px; font-size: 13.5px; }
+  .prov .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  @media (max-width: 900px) { .prov .grid3 { grid-template-columns: 1fr; } }
+  .prov .msg { display: block; min-height: 18px; margin-top: 8px; }
+
+  .route-row {
+    display: grid; grid-template-columns: 170px 1fr; gap: 14px; align-items: center;
+    padding: 7px 0; border-bottom: 1px dashed rgba(255,255,255,.05);
+  }
+  .route-row:last-child { border-bottom: none; }
+  .route-row .rname { font-size: 14.5px; }
+  .route-row .rname b { color: var(--acc); font-weight: 600; margin-right: 6px; font-family: var(--mono); font-size: 12.5px; }
+  .route-row select { max-width: 320px; }
+
+  .empty-tip { color: var(--soft); font-size: 14px; padding: 10px 2px; }
 </style>
 </head>
 <body>
@@ -164,31 +209,24 @@
     <div class="word">MAGENT</div>
     <div class="sub">数模全流程引擎</div>
   </div>
-
-  <div>
-    <h3>模型与路径</h3>
-    <div class="field"><label>API Base URL</label><input id="base_url" class="mono"></div>
-    <div class="field"><label>API Key</label><input id="api_key" type="password" class="mono" placeholder="sk-..."></div>
-    <div class="field"><label>模型名</label><input id="model" class="mono"></div>
-    <div class="field"><label>skills 目录</label><input id="skills_root" class="mono" placeholder="内置副本"></div>
-    <div class="row" style="margin-top:8px">
-      <button class="primary" onclick="saveConfig()">保存设置</button>
-      <button onclick="testConfig()">测试连接</button>
-    </div>
-    <span class="msg" id="config_msg"></span>
+  <div class="nav">
+    <button onclick="openSettings()">⚙&nbsp;&nbsp;设置</button>
   </div>
-
   <div class="railfoot">
     <div id="ver"></div>
   </div>
 </aside>
 
 <main>
-
   <section>
     <div class="sec-head">
       <span class="no">01</span><h2>项目</h2>
       <span class="hint" id="proj_now"></span>
+    </div>
+    <div class="banner hidden" id="key_banner">
+      <span>尚未配置模型服务</span>
+      <span class="spacer"></span>
+      <button class="primary" onclick="openSettings()">去设置</button>
     </div>
     <div class="panel">
       <div class="grid4">
@@ -208,7 +246,7 @@
         <span class="inline-file">题面文件：<input id="proj_files" type="file" multiple accept=".pdf,.docx,.md,.txt,.doc"></span>
         <button class="primary" onclick="createProject()">创建项目</button>
         <button onclick="loadProject()">打开已有项目</button>
-        <span class="msg" id="proj_msg" style="margin:0"></span>
+        <span class="msg" id="proj_msg"></span>
       </div>
     </div>
   </section>
@@ -231,13 +269,59 @@
     </div>
     <div id="log"><span class="dim">暂无运行记录</span></div>
   </section>
-
 </main>
+
+<!-- ============ 设置视图 ============ -->
+<div id="settingsView" class="hidden">
+  <header class="ov-head">
+    <button onclick="closeSettings()">← 返回</button>
+    <h2>设置</h2>
+    <span class="spacer"></span>
+    <span class="msg" id="settings_msg"></span>
+    <button class="primary" onclick="saveSettings()">保存全部设置</button>
+  </header>
+
+  <div class="ov-body">
+    <section>
+      <div class="sec-head">
+        <h3>模型服务</h3>
+        <span class="hint">任意 OpenAI 兼容服务，可添加多个</span>
+        <span class="spacer"></span>
+        <button onclick="addProvider()">＋ 添加服务</button>
+      </div>
+      <div id="providers"></div>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <h3>阶段路由</h3>
+        <span class="hint">不同阶段可使用不同模型服务</span>
+      </div>
+      <div class="panel">
+        <div class="route-row">
+          <span class="rname"><b>默认</b>所有阶段</span>
+          <select id="route_default"></select>
+        </div>
+        <div id="routes"></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-head"><h3>高级</h3></div>
+      <div class="panel">
+        <label>skills 目录（留空 = 使用软件内置副本）</label>
+        <input id="skills_root" class="mono" placeholder="内置副本">
+      </div>
+    </section>
+  </div>
+</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let currentRoot = localStorage.getItem("magent_root") || "";
 let es = null, timer = null;
+let META = { stages: [] };
 
 function msg(id, text, ok) {
   const el = $(id); el.textContent = text; el.className = "msg " + (ok ? "ok" : "bad");
@@ -261,34 +345,161 @@ async function api(path, opts) {
   return resp.json();
 }
 
-async function loadConfig() {
-  const cfg = await api("/api/config");
-  $("base_url").value = cfg.provider.base_url;
-  $("api_key").value = cfg.provider.api_key;
-  $("model").value = cfg.provider.model;
-  $("skills_root").value = cfg.skills_root || "";
-  const v = await api("/api/version");
-  $("ver").textContent = "v" + v.version;
+/* ============ 设置视图：模型服务 ============ */
+
+function providerCard(p) {
+  return `<div class="prov" data-id="${esc(p.id)}">
+    <div class="prov-head">
+      <input data-f="name" value="${esc(p.name)}" placeholder="服务名称" onchange="refreshRouteOptions()">
+      <span class="spacer"></span>
+      <button onclick="testProvider(this)">测试连接</button>
+      <button class="danger" onclick="removeProvider(this)">删除</button>
+    </div>
+    <div class="grid3">
+      <div><label>Base URL</label><input class="mono" data-f="base_url" value="${esc(p.base_url)}" placeholder="https://api.deepseek.com"></div>
+      <div><label>API Key</label><input class="mono" type="password" data-f="api_key" value="${esc(p.api_key)}" placeholder="sk-..."></div>
+      <div><label>模型名</label><input class="mono" data-f="model" value="${esc(p.model)}" placeholder="deepseek-chat"></div>
+    </div>
+    <span class="msg"></span>
+  </div>`;
 }
-async function saveConfig() {
-  await api("/api/config", {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-      provider: {
-        base_url: $("base_url").value.trim(), api_key: $("api_key").value.trim(),
-        model: $("model").value.trim(),
-      },
-      skills_root: $("skills_root").value.trim(),
-    }),
+
+function collectProviders() {
+  return [...document.querySelectorAll("#providers .prov")].map(card => ({
+    id: card.dataset.id,
+    name: card.querySelector('[data-f="name"]').value.trim(),
+    base_url: card.querySelector('[data-f="base_url"]').value.trim(),
+    api_key: card.querySelector('[data-f="api_key"]').value.trim(),
+    model: card.querySelector('[data-f="model"]').value.trim(),
+  }));
+}
+
+function renderProviders(list) {
+  $("providers").innerHTML = list.map(providerCard).join("") ||
+    '<div class="empty-tip">还没有模型服务，点右上角「＋ 添加服务」。</div>';
+  refreshRouteOptions();
+}
+
+function addProvider() {
+  const id = "svc-" + Date.now().toString(36);
+  const list = collectProviders();
+  list.push({ id, name: "新服务", base_url: "", api_key: "", model: "" });
+  $("providers").innerHTML = list.map(providerCard).join("");
+  refreshRouteOptions();
+  const cards = document.querySelectorAll("#providers .prov");
+  cards[cards.length - 1]?.querySelector('[data-f="base_url"]')?.focus();
+}
+
+function removeProvider(btn) {
+  const cards = document.querySelectorAll("#providers .prov");
+  if (cards.length <= 1) { msg("settings_msg", "至少保留一个模型服务", false); return; }
+  btn.closest(".prov").remove();
+  refreshRouteOptions();
+}
+
+async function testProvider(btn) {
+  const card = btn.closest(".prov");
+  const out = card.querySelector(".msg");
+  const data = {
+    id: card.dataset.id,
+    name: card.querySelector('[data-f="name"]').value.trim(),
+    base_url: card.querySelector('[data-f="base_url"]').value.trim(),
+    api_key: card.querySelector('[data-f="api_key"]').value.trim(),
+    model: card.querySelector('[data-f="model"]').value.trim(),
+  };
+  out.className = "msg"; out.textContent = "测试中…";
+  try {
+    const r = await api("/api/config/test", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({provider_id: data.id, base_url: data.base_url, api_key: data.api_key, model: data.model}),
+    });
+    if (r.ok) { out.className = "msg ok"; out.textContent = `连接成功，${r.latency_ms} ms`; }
+    else { out.className = "msg bad"; out.textContent = r.error; }
+  } catch (e) { out.className = "msg bad"; out.textContent = e.message; }
+}
+
+/* ============ 设置视图：阶段路由 ============ */
+
+function refreshRouteOptions() {
+  const provs = collectProviders();
+  const opts = provs.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
+
+  const defSel = $("route_default");
+  const curDef = defSel.value;
+  defSel.innerHTML = opts;
+  if (provs.some(p => p.id === curDef)) defSel.value = curDef;
+
+  document.querySelectorAll("#routes select").forEach(sel => {
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">跟随默认</option>' + opts;
+    if (provs.some(p => p.id === cur)) sel.value = cur;
   });
-  msg("config_msg", "已保存", true);
 }
-async function testConfig() {
-  msg("config_msg", "测试中…", true);
-  await saveConfig();
-  const r = await api("/api/config/test", {method: "POST"});
-  msg("config_msg", r.ok ? `连通，${r.latency_ms} ms` : `失败：${r.error}`, r.ok);
+
+function renderRoutes(routing) {
+  $("routes").innerHTML = META.stages.map(s =>
+    `<div class="route-row">
+       <span class="rname"><b>${esc(s.key)}</b>${esc(s.title)}</span>
+       <select data-key="${esc(s.key)}"></select>
+     </div>`).join("");
+  refreshRouteOptions();
+  $("route_default").value = routing.default || "";
+  document.querySelectorAll("#routes select").forEach(sel => {
+    sel.value = routing[sel.dataset.key] || "";
+  });
 }
+
+function collectRouting() {
+  const routing = { default: $("route_default").value };
+  document.querySelectorAll("#routes select").forEach(sel => {
+    if (sel.value) routing[sel.dataset.key] = sel.value;
+  });
+  return routing;
+}
+
+/* ============ 设置视图：打开 / 保存 ============ */
+
+async function openSettings() {
+  try {
+    const cfg = await api("/api/config");
+    renderProviders(cfg.providers || []);
+    renderRoutes(cfg.routing || {});
+    $("skills_root").value = cfg.skills_root || "";
+    $("settingsView").classList.remove("hidden");
+  } catch (e) { alert("读取配置失败：" + e.message); }
+}
+
+function closeSettings() {
+  $("settingsView").classList.add("hidden");
+}
+
+async function saveSettings() {
+  const providers = collectProviders();
+  const bad = providers.find(p => !p.base_url || !p.model);
+  if (bad) { msg("settings_msg", `服务「${bad.name || "未命名"}」缺少 Base URL 或模型名`, false); return; }
+  // 掩码 key（***xxxx）视为已存储，服务端会保留原值
+  if (!providers.some(p => p.api_key)) {
+    msg("settings_msg", "至少为一个服务填写 API Key", false); return;
+  }
+  try {
+    await api("/api/config", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ providers, routing: collectRouting(), skills_root: $("skills_root").value.trim() }),
+    });
+    msg("settings_msg", "已保存", true);
+    refreshKeyBanner();
+  } catch (e) { msg("settings_msg", e.message, false); }
+}
+
+async function refreshKeyBanner() {
+  try {
+    const cfg = await api("/api/config");
+    const ready = (cfg.providers || []).some(p => p.api_key);
+    $("key_banner").classList.toggle("hidden", ready);
+  } catch (e) { /* 配置读不到时不打扰 */ }
+}
+
+/* ============ 项目与工序（主界面） ============ */
 
 async function createProject() {
   const root = $("proj_root").value.trim();
@@ -348,7 +559,7 @@ async function refresh() {
     div.className = "stop";
     if (s.status === "complete") div.classList.add("done");
     if (s.status === "failed") div.classList.add("bad");
-    if (s.status === "in_progress") { div.classList.add("on", "running"); }
+    if (s.status === "in_progress") div.classList.add("on", "running");
 
     let actions = "";
     if (["pending", "failed"].includes(s.status)) {
@@ -387,7 +598,9 @@ async function markNA(key) {
 }
 
 async function boot() {
-  await loadConfig();
+  try { META = await api("/api/meta"); } catch (e) {}
+  $("ver").textContent = "MAgent v" + (META.version || "");
+  await refreshKeyBanner();
   if (currentRoot) { $("proj_root").value = currentRoot; subscribe(); }
   refresh();
   timer = setInterval(refresh, 4000);

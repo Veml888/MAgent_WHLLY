@@ -17,11 +17,12 @@
 ```
 1. 双击 start_magent.bat（开发机）或分发包里的「启动MAgent.bat」
    → 弹出 MAgent 桌面窗口（关闭窗口即退出软件）
-2. 「模型与路径设置」：填 API Base URL / Key / 模型名 → 测试连接
+2. 左侧「⚙ 设置」→ 添加模型服务：填 Base URL / API Key / 模型名 → 测试连接
    - 默认 DeepSeek：https://api.deepseek.com + deepseek-chat
-   - 任意 OpenAI 兼容服务（GLM/Kimi/Qwen/Ollama…）改三个字段即可
-3. 「新建项目」：填项目路径、题目标题、侧重点 → 选择题面文件（PDF/DOCX/MD/TXT）→ 创建
-4. 流水线卡片上点「启动」，从赛题分析阶段开始跑
+   - 可添加多个服务（GLM/Kimi/Qwen/Ollama…），并在「阶段路由」里
+     为不同阶段指定不同模型（如建模/论文用强模型、图表用快模型）
+3. 「项目」区：填项目路径、题目标题、侧重点 → 选择题面文件（PDF/DOCX/MD/TXT）→ 创建
+4. 「工序」区点「启动」，从赛题分析阶段开始跑；运行记录显示所用模型与门禁结果
 ```
 
 桌面窗口由 pywebview（Windows WebView2 内核）承载；异常时用
@@ -79,11 +80,12 @@
   `figures/`、`paper/`、`project-manifest.json`（引擎独占写）。
 - `.magent/`：引擎内部目录（prefs、sessions 转录、events 日志），模型禁写。
 
-## 当前版本（v0.1）范围
+## 版本能力（v0.2）
 
-- ✅ CLI 内核 + 本地 Web 面板、DeepSeek 等 OpenAI 兼容 BYOK、8 阶段门禁引擎、
-  断点续跑（manifest 驱动 + 会话续跑模式）、n_a 标记、环境自检
-- ⏳ 后续：5a/5b 图表并行、分阶段模型路由、桌面打包（Tauri）、TeX 一键安装、多项目看板
+- ✅ 桌面窗口 + 独立设置界面、多模型服务 + 阶段路由、8 阶段门禁引擎、
+  断点续跑（manifest 驱动 + 会话续跑模式）、n_a 标记、环境自检、
+  三种分发形态（安装包 / 单文件 exe / 绿色包）、CI 自动发布
+- ⏳ 后续：5a/5b 图表并行、token 用量与费用统计、产物预览、多项目看板、Tauri 壳
 
 ## 免责
 

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import pipeline
 from .agent import AgentSession
-from .config import resolve_skills_root
+from .config import provider_for_stage, resolve_skills_root
 from .gates import run_stage_gates
 from .llm import ContextLimitError, LLMClient, LLMError
 from .manifest import ManifestError, ManifestStore
@@ -224,7 +224,22 @@ def run_stage(
             prefs = {}
     problem_files = _list_problem_files(root)
 
-    llm = llm or LLMClient(cfg["provider"])
+    try:
+        provider = provider_for_stage(cfg, stage.key)
+    except RuntimeError as exc:
+        return StageResult(stage_key, "error", str(exc))
+    log({
+        "type": "stage",
+        "msg": f"本阶段模型：{provider.get('name', '未命名服务')} / {provider.get('model', '')}"
+               + ("" if provider.get("api_key") else "（API Key 未配置）"),
+    })
+    if llm is None:
+        if not provider.get("api_key"):
+            return StageResult(
+                stage_key, "error",
+                f"阶段「{stage.title}」使用的模型服务「{provider.get('name')}」尚未配置 API Key，请到设置页填写",
+            )
+        llm = LLMClient(provider)
     toolbox = ToolBox(root, run_timeout_sec=limits.get("run_timeout_sec", 600), log=log)
     extra_rules = ""
     if stage.key == "paper_final":

@@ -32,7 +32,6 @@ console = Console()
 
 def _doctor() -> int:
     cfg = ensure()
-    provider = cfg["provider"]
     try:
         skills_root, skills_source = resolve_skills_root(cfg)
         skills_note = f"[{skills_source}] {skills_root}"
@@ -72,16 +71,36 @@ def _doctor() -> int:
     checks.append(("pdftocairo（TikZ 转 PNG）", pdftocairo is not None,
                    pdftocairo or "未找到——仅影响 graphics 阶段，可 winget install poppler"))
 
-    key_ok = bool(provider.get("api_key"))
-    checks.append(("模型 API Key", key_ok, f"{provider['name']} / {provider['model']}" + ("" if key_ok else "（尚未配置）")))
+    providers = [p for p in cfg.get("providers", []) if isinstance(p, dict)]
+    routing = cfg.get("routing", {}) if isinstance(cfg.get("routing"), dict) else {}
+    configured = [p for p in providers if p.get("api_key")]
+    checks.append(
+        (
+            "模型服务",
+            bool(configured),
+            f"{len(providers)} 个已登记、{len(configured)} 个已配 Key："
+            + "、".join(f"{p.get('name', '?')}({p.get('model', '?')})" for p in providers)
+            if providers else "（无）",
+        )
+    )
+    route_targets = {k: v for k, v in routing.items() if k != "default" and v}
+    checks.append(
+        (
+            "阶段路由",
+            True,
+            f"默认 → {routing.get('default', '?')}；"
+            + (f"{len(route_targets)} 个阶段单独指定" if route_targets else "全部跟随默认"),
+        )
+    )
 
-    if key_ok:
-        from .llm import LLMClient, LLMError
+    from .llm import LLMClient, LLMError
+
+    for prov in configured[:3]:  # 最多实测 3 个，避免 doctor 太慢
         try:
-            latency = LLMClient(provider).ping()
-            checks.append(("模型连通性", True, f"{latency} ms"))
+            latency = LLMClient(prov).ping()
+            checks.append((f"连通：{prov.get('name')}", True, f"{latency} ms"))
         except LLMError as exc:
-            checks.append(("模型连通性", False, str(exc)[:120]))
+            checks.append((f"连通：{prov.get('name')}", False, str(exc)[:120]))
 
     table = Table(title=f"MAgent v{__version__} 环境自检")
     table.add_column("检查项")

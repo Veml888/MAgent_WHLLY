@@ -118,6 +118,18 @@ def version():
     return {"version": __version__}
 
 
+@app.get("/api/meta")
+def meta():
+    """给前端用的元信息：阶段清单（设置页做路由用）。"""
+    return {
+        "version": __version__,
+        "stages": [
+            {"key": key, "title": pipeline.STAGES[key].title, "skill": pipeline.STAGES[key].skill}
+            for key in pipeline.ORDER
+        ],
+    }
+
+
 @app.get("/api/config")
 def get_config():
     return config_mod.masked(config_mod.load())
@@ -126,24 +138,80 @@ def get_config():
 @app.post("/api/config")
 async def save_config(cfg: dict):
     current = config_mod.load()
-    provider = cfg.get("provider", {})
-    # 前端回传掩码 key 时不覆盖真实 key
-    if provider.get("api_key", "").startswith("***"):
-        provider["api_key"] = current["provider"]["api_key"]
-    current.update({k: v for k, v in cfg.items() if k != "provider"})
-    current["provider"].update(provider)
+    stored = {p["id"]: p for p in current.get("providers", []) if p.get("id")}
+
+    incoming = cfg.get("providers")
+    if isinstance(incoming, list) and incoming:
+        merged: list[dict] = []
+        seen: set[str] = set()
+        for raw in incoming:
+            if not isinstance(raw, dict):
+                continue
+            pid = str(raw.get("id") or "").strip() or config_mod.new_provider_id()
+            while pid in seen:  # 兜底去重
+                pid = config_mod.new_provider_id()
+            seen.add(pid)
+            old = stored.get(pid, {})
+            api_key = str(raw.get("api_key") or "")
+            merged.append(
+                {
+                    "id": pid,
+                    "name": str(raw.get("name") or "未命名服务").strip(),
+                    "base_url": str(raw.get("base_url") or "").strip(),
+                    "api_key": old.get("api_key", "") if api_key.startswith("***") else api_key,
+                    "model": str(raw.get("model") or "").strip(),
+                    "temperature": raw.get("temperature", old.get("temperature")),
+                }
+            )
+        if merged:
+            current["providers"] = merged
+    ids = {p["id"] for p in current["providers"]}
+
+    routing = cfg.get("routing")
+    if isinstance(routing, dict):
+        cleaned = {"default": routing.get("default")}
+        for key, value in routing.items():
+            if key == "default":
+                continue
+            if value:  # 空 = 跟随默认
+                cleaned[key] = value
+        if cleaned["default"] not in ids:
+            cleaned["default"] = current["providers"][0]["id"]
+        # 清理指向已删除服务的路由
+        cleaned = {k: v for k, v in cleaned.items() if k == "default" or v in ids}
+        current["routing"] = cleaned
+
+    for key, value in cfg.items():
+        if key not in ("providers", "routing", "provider"):
+            current[key] = value
+    current.pop("provider", None)  # 1.x 残留字段
     config_mod.save(current)
     return {"ok": True}
 
 
 @app.post("/api/config/test")
-def test_config():
+def test_config(body: dict | None = None):
+    """测试连接。body 可带 provider_id（测已存服务），也可带内联字段（测未保存的编辑）。"""
     from .llm import LLMClient, LLMError
 
+    body = body or {}
     cfg = config_mod.load()
+    pid = body.get("provider_id") or body.get("id")
+    stored = {p["id"]: p for p in cfg.get("providers", []) if p.get("id")}
+    target = dict(stored.get(str(pid) or "", {}))
+    for key in ("name", "base_url", "model"):
+        if body.get(key):
+            target[key] = str(body[key])
+    api_key = str(body.get("api_key") or "")
+    if api_key and not api_key.startswith("***"):
+        target["api_key"] = api_key
+    if not target.get("base_url"):
+        return {"ok": False, "error": "缺少 Base URL"}
+    if not target.get("api_key"):
+        return {"ok": False, "error": "缺少 API Key"}
     try:
-        latency = LLMClient(cfg["provider"]).ping()
-        return {"ok": True, "latency_ms": latency}
+        latency = LLMClient(target).ping()
+        return {"ok": True, "latency_ms": latency, "model": target.get("model", "")}
     except LLMError as exc:
         return {"ok": False, "error": str(exc)[:300]}
 
@@ -222,8 +290,13 @@ def _spawn_stage(root: Path, stage_key: str) -> None:
     if runtime.running_stage is not None:
         raise HTTPException(409, f"阶段 {runtime.running_stage} 正在运行，请稍候")
     cfg = config_mod.load()
-    if not cfg["provider"].get("api_key"):
-        raise HTTPException(400, "尚未配置模型 API Key，请先在设置页保存")
+    try:
+        provider = config_mod.provider_for_stage(cfg, stage_key)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not provider.get("api_key"):
+        title = pipeline.STAGES[stage_key].title
+        raise HTTPException(400, f"阶段「{title}」使用的模型服务「{provider.get('name')}」尚未配置 API Key，请到设置页填写")
 
     def worker():
         runtime.running_stage = stage_key
