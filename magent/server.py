@@ -6,10 +6,13 @@ manifest 永远从磁盘即时读取（引擎是唯一写者，磁盘即真相�
 
 from __future__ import annotations
 
+import io
 import json
 import os
+import re
 import threading
 import time
+import zipfile
 from collections import deque
 from pathlib import Path
 
@@ -133,12 +136,21 @@ def meta():
             for key in pipeline.ORDER
         ],
         "recent_projects": cfg.get("recent_projects", []),
-        "default_projects_dir": _default_projects_dir(),
+        "default_projects_dir": _default_projects_dir(cfg),
     }
 
 
-def _default_projects_dir() -> str:
-    """新项目默认父目录：优先 D 盘根目录（可写时），否则退回「文档\\MAgent项目」。"""
+def _default_projects_dir(cfg: dict | None = None) -> str:
+    """新项目默认父目录：配置优先；否则 D 盘根目录（可写时）；再退「文档/MAgent项目」。"""
+    cfg = cfg or config_mod.load()
+    configured = str(cfg.get("projects_dir") or "").strip()
+    if configured:
+        try:
+            path = Path(configured)
+            path.mkdir(parents=True, exist_ok=True)
+            return str(path)
+        except OSError:
+            pass  # 配置不可用时退回默认探测
     for drive in ("D:/", "E:/"):
         root = Path(drive)
         try:
@@ -147,6 +159,35 @@ def _default_projects_dir() -> str:
         except OSError:
             continue
     return str(Path.home() / "Documents" / "MAgent项目")
+
+
+LETTER_RE = re.compile(r"([A-Ea-e])\s*[题卷]")
+
+
+def _detect_problem_letter(names: list[str], blobs: list[tuple[str, bytes]]) -> str | None:
+    """从上传文件名（含压缩包内文件名）推断赛题题号字母：B题.pdf → B。"""
+    for name in names:
+        match = LETTER_RE.search(Path(name).stem) or LETTER_RE.search(name)
+        if match:
+            return match.group(1).upper()
+    for name, content in blobs:
+        if not name.lower().endswith(".zip"):
+            continue
+        try:
+            with zipfile.ZipFile(io.BytesIO(content)) as zf:
+                for member in zf.namelist()[:200]:
+                    match = LETTER_RE.search(Path(member).stem) or LETTER_RE.search(member)
+                    if match:
+                        return match.group(1).upper()
+        except zipfile.BadZipFile:
+            continue
+    return None
+
+
+def _auto_project_title(letter: str | None) -> str:
+    """项目名：2026-国赛B题；题号未定则为 2026-国赛（待定），赛题分析后可自动改名。"""
+    year = time.strftime("%Y")
+    return f"{year}-国赛{letter}题" if letter else f"{year}-国赛（待定）"
 
 
 @app.get("/api/config")
@@ -239,28 +280,53 @@ def test_config(body: dict | None = None):
 
 @app.post("/api/project")
 async def create_project(
-    root: str = Form(...),
+    root: str = Form(""),
     title: str = Form(""),
     focus: str = Form("均衡"),
     subproblems: str = Form("待赛题分析确定"),
     files: list[UploadFile] | None = File(default=None),
 ):
-    """浏览器以 multipart/form-data 提交（含题面文件），故用 Form/File 解析。"""
+    """创建项目：项目名由软件自动生成（年份-竞赛+题型）；路径留空则自动决定位置。
+
+    目标目录已是项目且带文件时，把文件补进该项目的 data/（不报错）。
+    """
     cfg = config_mod.load()
-    root_path = Path(root).expanduser().resolve()
-    if root_path.exists() and (root_path / "project-manifest.json").is_file():
-        raise HTTPException(409, "该目录已是一个 MAgent 项目（已存在 project-manifest.json）。"
-                                 "想继续它请用「打开已有项目」，新建请换一个空目录。")
-    problem_files = []
+    problem_files: list[tuple[str, bytes]] = []
     for upload in files or []:
         content = await upload.read()
         if content:
             problem_files.append((upload.filename or "题目.bin", content))
+
+    letter = _detect_problem_letter([name for name, _ in problem_files], problem_files)
+    auto_title = _auto_project_title(letter)
+
+    if root.strip():
+        root_path = Path(root).expanduser().resolve()
+    else:
+        root_path = (Path(_default_projects_dir(cfg)) / auto_title).resolve()
+
+    if root_path.exists() and (root_path / "project-manifest.json").is_file():
+        if problem_files:  # 已是项目：把选中的文件补进去
+            saved = engine.add_project_files(root_path, problem_files)
+            config_mod.add_recent_project(cfg, str(root_path))
+            if str(root_path) not in cfg.get("workspaces", []):
+                cfg["workspaces"] = [str(root_path), *cfg.get("workspaces", [])][:12]
+            config_mod.save(cfg)
+            payload = _state_payload(root_path)
+            payload["added_files"] = saved
+            return payload
+        raise HTTPException(
+            409,
+            f"该目录已是项目（{root_path.name}）。打开它：点左侧工作区「＋」或「打开其他项目」；"
+            "或把「项目路径」清空，让软件自动新建一个项目。",
+        )
+
+    final_title = title.strip() or auto_title
     try:
         skills_root, _source = resolve_skills_root(cfg)
         engine.init_project(
             root=root_path,
-            title=title or "未命名题目",
+            title=final_title,
             prefs={"focus": focus, "subproblems": subproblems},
             problem_files=problem_files,
             skills_root=skills_root,
@@ -297,7 +363,7 @@ def mark_recent(body: RecentIn):
 def _workspace_entry(root: Path) -> dict:
     entry: dict = {
         "root": str(root), "title": root.name, "exists": root.is_dir(),
-        "running": None, "stages": {},
+        "is_project": False, "running": None, "stages": {},
     }
     runtime = RUNTIMES.get(str(root))
     if runtime and runtime.running_stage:
@@ -306,6 +372,7 @@ def _workspace_entry(root: Path) -> dict:
         try:
             store = ManifestStore(root)
             store.load()
+            entry["is_project"] = True
             entry["title"] = store.data.get("project", {}).get("title") or root.name
             entry["stages"] = store.summary()["stages"]
         except ManifestError:
@@ -325,15 +392,16 @@ class WorkspaceIn(BaseModel):
 
 @app.post("/api/workspaces/add")
 def add_workspace(body: WorkspaceIn):
+    """把任意文件夹加入工作区（不要求它已是项目——非项目时由界面引导初始化）。"""
     root = Path(body.root).expanduser().resolve()
-    if not (root / "project-manifest.json").is_file():
-        raise HTTPException(400, "该目录不是 MAgent 项目（缺少 project-manifest.json）")
+    if not root.is_dir():
+        raise HTTPException(400, f"文件夹不存在：{root}")
     cfg = config_mod.load()
     others = [w for w in cfg.get("workspaces", []) if Path(w) != root]
     cfg["workspaces"] = [str(root), *others][:12]
     config_mod.add_recent_project(cfg, str(root))
     config_mod.save(cfg)
-    return {"ok": True, "workspaces": cfg["workspaces"]}
+    return {"ok": True, "is_project": (root / "project-manifest.json").is_file(), "workspaces": cfg["workspaces"]}
 
 
 @app.post("/api/workspaces/remove")
@@ -343,6 +411,70 @@ def remove_workspace(body: WorkspaceIn):
     cfg["workspaces"] = [w for w in cfg.get("workspaces", []) if Path(w) != root]
     config_mod.save(cfg)
     return {"ok": True}
+
+
+DATA_LIKE_EXTS = {".pdf", ".docx", ".doc", ".md", ".txt", ".csv", ".xlsx", ".xls", ".zip", ".png", ".jpg", ".jpeg"}
+SKELETON_NAMES = {"plan.md", "todo.md", "project-manifest.json", "project-manifest.schema.json"}
+
+
+def _collect_loose_data_files(root: Path) -> list[tuple[str, bytes]]:
+    """把文件夹根目录里现成的题面/数据文件收进来（作为项目 data/ 的初始内容）。"""
+    items: list[tuple[str, bytes]] = []
+    try:
+        entries = sorted(root.iterdir(), key=lambda p: p.name.lower())
+    except OSError:
+        return items
+    for path in entries:
+        if not path.is_file() or path.name in SKELETON_NAMES:
+            continue
+        if path.suffix.lower() not in DATA_LIKE_EXTS:
+            continue
+        try:
+            if path.stat().st_size > 60 * 1024 * 1024:  # 单文件 60MB 上限
+                continue
+            items.append((path.name, path.read_bytes()))
+        except OSError:
+            continue
+    return items
+
+
+@app.post("/api/project/init")
+def init_existing_folder(body: WorkspaceIn):
+    """把一个已有文件夹初始化为 MAgent 项目（用户确认后才调用）。
+
+    - 自动命名：优先从文件夹内的文件名推断题号（如 B题.pdf → 2026-国赛B题），否则先用（待定）
+    - 已存在的文件全部保留；根目录里的题面/数据文件会复制一份进 data/ 供流水线使用
+    """
+    root = Path(body.root).expanduser().resolve()
+    if not root.is_dir():
+        raise HTTPException(400, f"文件夹不存在：{root}")
+    if (root / "project-manifest.json").is_file():
+        return _state_payload(root)  # 已经是项目，直接返回状态
+
+    cfg = config_mod.load()
+    loose = _collect_loose_data_files(root)
+    letter = _detect_problem_letter([name for name, _ in loose], loose)
+    title = _auto_project_title(letter)
+    try:
+        skills_root, _source = resolve_skills_root(cfg)
+        engine.init_project(
+            root=root,
+            title=title,
+            prefs={"focus": "均衡"},
+            problem_files=loose,
+            skills_root=skills_root,
+        )
+    except Exception as exc:
+        raise HTTPException(500, f"初始化失败：{exc}")
+
+    others = [w for w in cfg.get("workspaces", []) if Path(w) != root]
+    cfg["workspaces"] = [str(root), *others][:12]
+    config_mod.add_recent_project(cfg, str(root))
+    config_mod.save(cfg)
+
+    payload = _state_payload(root)
+    payload["adopted_files"] = [name for name, _ in loose]
+    return payload
 
 
 # ---------- 工作区文件浏览 ----------

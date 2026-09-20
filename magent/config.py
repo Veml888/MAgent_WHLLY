@@ -39,6 +39,8 @@ DEFAULTS: dict = {
         "retry_rounds": 3,       # finish 被门禁拒绝后的最大重试轮数
         "run_timeout_sec": 600,  # run_command 默认超时
     },
+    # 新项目默认父目录：留空 = 自动（D 盘根目录，无 D 盘退文档\MAgent项目）
+    "projects_dir": "",
     "recent_projects": [],
     # 侧边栏「工作区」列表：可同时打开多个项目（各自独立运行）
     "workspaces": [],

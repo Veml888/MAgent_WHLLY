@@ -50,7 +50,65 @@ def test_duplicate_project_dir_gives_409(client, tmp_path):
     assert client.post("/api/project", data={"root": str(root), "title": "T"}).status_code == 200
     again = client.post("/api/project", data={"root": str(root), "title": "T2"})
     assert again.status_code == 409
-    assert "打开已有项目" in again.json()["detail"]
+    assert "已是项目" in again.json()["detail"]
+
+
+def test_auto_naming_from_filename(client, tmp_path):
+    """题号从上传文件名推断：B题.pdf → 2026-国赛B题（无需用户取名）。"""
+    root = tmp_path / "auto-b"
+    resp = client.post(
+        "/api/project",
+        data={"root": str(root)},
+        files={"files": ("B题.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
+    )
+    assert resp.status_code == 200, resp.text
+    title = resp.json()["project_title"]
+    assert title.endswith("-国赛B题"), title
+    assert title.startswith("20"), title
+
+
+def test_auto_naming_placeholder_when_unknown(client, tmp_path):
+    root = tmp_path / "auto-unknown"
+    resp = client.post(
+        "/api/project",
+        data={"root": str(root)},
+        files={"files": ("题目.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
+    )
+    assert resp.json()["project_title"].endswith("-国赛（待定）")
+
+
+def test_empty_path_creates_in_default_dir(client, tmp_path):
+    """路径留空 → 建在默认父目录下，并以自动名命名。"""
+    cfg = config_mod.load()
+    cfg["projects_dir"] = str(tmp_path / "默认位置")
+    config_mod.save(cfg)
+    resp = client.post(
+        "/api/project",
+        data={},
+        files={"files": ("A题.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["root"].startswith(str(tmp_path / "默认位置"))
+    assert payload["project_title"].endswith("-国赛A题")
+    from pathlib import Path as P
+    assert (P(payload["root"]) / "project-manifest.json").is_file()
+
+
+def test_files_into_existing_project_instead_of_409(client, tmp_path):
+    """目标已是项目时补文件进 data/，而不是报错（用户上传附件却不落盘的场景）。"""
+    root = tmp_path / "existing"
+    client.post("/api/project", data={"root": str(root), "title": "T"})
+    resp = client.post(
+        "/api/project",
+        data={"root": str(root)},
+        files=[
+            ("files", ("附件/数据.csv", io.BytesIO("a,b\n1,2\n".encode()), "text/csv")),
+        ],
+    )
+    assert resp.status_code == 200, resp.text
+    assert "附件/数据.csv" in resp.json()["added_files"]
+    assert (root / "data" / "附件" / "数据.csv").is_file()
 
 
 def test_meta_lists_stages_and_recent(client, tmp_path):
@@ -149,10 +207,15 @@ def test_workspaces_multi_project(client, tmp_path):
     assert all(w["root"] != str(a) for w in ws2)
     assert (a / "project-manifest.json").is_file()
 
-    # 添加非项目目录被拒
-    bad = tmp_path / "空目录"
-    bad.mkdir()
-    assert client.post("/api/workspaces/add", json={"root": str(bad)}).status_code == 400
+    # 任意文件夹都可加入工作区（非项目时由界面引导初始化）
+    plain = tmp_path / "普通文件夹"
+    plain.mkdir()
+    added = client.post("/api/workspaces/add", json={"root": str(plain)})
+    assert added.status_code == 200 and added.json()["is_project"] is False
+    ws3 = client.get("/api/workspaces").json()["workspaces"]
+    assert any(w["root"] == str(plain) and w["is_project"] is False for w in ws3)
+    # 目录不存在才拒绝
+    assert client.post("/api/workspaces/add", json={"root": str(tmp_path / "不存在")}).status_code == 400
 
 
 def test_stage_locks_are_per_workspace(client, tmp_path, monkeypatch):
@@ -272,3 +335,27 @@ def test_pipeline_requires_model_key(client, tmp_path):
     config_mod.save(cfg)
     resp = client.post("/api/pipeline/start", json={"root": str(root), "mode": "auto"})
     assert resp.status_code == 400 and "API Key" in resp.json()["detail"]
+
+
+def test_init_existing_folder_as_project(client, tmp_path):
+    """打开任意文件夹后一键初始化为项目：自动命名、保留原文件、题面收进 data/。"""
+    folder = tmp_path / "我的比赛文件夹"
+    folder.mkdir()
+    (folder / "B题.pdf").write_bytes(b"%PDF-1.4")
+    (folder / "附件").mkdir()
+    (folder / "附件" / "数据.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    (folder / "笔记.txt").write_text("我的笔记", encoding="utf-8")
+
+    before = client.get("/api/state", params={"root": str(folder)}).json()
+    assert before["manifest_ok"] is False  # 初始化前不是项目
+
+    resp = client.post("/api/project/init", json={"root": str(folder)})
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["manifest_ok"] is True
+    assert payload["project_title"].endswith("-国赛B题")
+    assert "B题.pdf" in payload["adopted_files"]
+    assert (folder / "笔记.txt").read_text(encoding="utf-8") == "我的笔记"   # 原文件保留
+    assert (folder / "data" / "B题.pdf").is_file()                          # 题面收进 data/
+    ws = client.get("/api/workspaces").json()["workspaces"]
+    assert any(w["root"] == str(folder) and w["is_project"] for w in ws)

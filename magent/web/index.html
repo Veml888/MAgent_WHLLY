@@ -286,10 +286,10 @@
     <div class="ws-head">
       <span>工作区</span>
       <span class="spacer"></span>
-      <button class="mini" onclick="addWorkspacePrompt()" title="添加已有项目到工作区">＋</button>
+      <button class="mini" onclick="addWorkspacePrompt()" title="打开任意文件夹作为工作区">＋</button>
       <button class="mini" onclick="refreshWorkspaces(true)" title="刷新">↻</button>
     </div>
-    <div id="wslist" class="tree"><div class="empty-tip">尚未添加工作区<br>· 新建题目：右侧「项目」区填写后创建<br>· 打开已有：点上方 ＋ 选择项目文件夹</div></div>
+    <div id="wslist" class="tree"><div class="empty-tip">尚未添加工作区<br>· 新建题目：右侧「项目」区选题面后点「创建项目」<br>· 打开文件夹：点上方 ＋ 选任意文件夹</div></div>
   </div>
 
   <div class="railfoot">
@@ -303,27 +303,18 @@
       <span class="no">01</span><h2>项目</h2>
       <span class="hint" id="proj_now"></span>
     </div>
+    <div class="banner hidden" id="init_banner">
+      <span id="init_banner_text">该文件夹还不是 MAgent 项目</span>
+      <span class="spacer"></span>
+      <button class="primary" onclick="initCurrentWorkspace()">初始化为项目</button>
+    </div>
     <div class="banner hidden" id="key_banner">
       <span>尚未配置模型服务</span>
       <span class="spacer"></span>
       <button class="primary" onclick="openSettings()">去设置</button>
     </div>
     <div class="panel">
-      <div class="grid4">
-        <div><label>题目标题</label><input id="proj_title" placeholder="如：2026 国赛 A 题"></div>
-        <div><label>侧重点</label>
-          <select id="proj_focus">
-            <option>均衡</option><option>精度优先</option>
-            <option>可解释性优先</option><option>速度优先</option>
-          </select></div>
-        <div><label>项目路径（填标题后自动生成，也可自选）</label>
-          <div class="path-row">
-            <input id="proj_root" class="mono" placeholder="自动生成">
-            <button id="browse_btn" class="hidden" onclick="browseFolder()" title="选择文件夹">浏览…</button>
-          </div>
-        </div>
-      </div>
-      <div class="row">
+      <div class="row" style="margin-top:0">
         <button onclick="document.getElementById('proj_files').click()">选择题面文件…</button>
         <input id="proj_files" type="file" multiple class="hidden" accept=".pdf,.docx,.doc,.md,.txt,.csv,.xlsx,.xls,.zip,.png,.jpg,.jpeg" onchange="updateFileSummary()">
         <button onclick="document.getElementById('proj_dir').click()">上传附件文件夹…</button>
@@ -331,12 +322,15 @@
         <span class="hint" id="file_summary"></span>
         <span class="spacer"></span>
         <button class="primary" onclick="createProject()">创建项目</button>
-        <span id="recent_wrap" class="hidden">
-          <select id="recent_sel" onchange="openRecent(this.value)">
-            <option value="">最近的项目…</option>
-          </select>
-        </span>
         <span class="msg" id="proj_msg"></span>
+      </div>
+      <div class="row">
+        <span class="hint">侧重点</span>
+        <select id="proj_focus" style="max-width:180px">
+          <option>均衡</option><option>精度优先</option>
+          <option>可解释性优先</option><option>速度优先</option>
+        </select>
+        <span class="hint" id="auto_name_hint">项目名与位置自动生成（如 D:\2026-国赛B题），无需填写</span>
       </div>
     </div>
   </section>
@@ -485,7 +479,7 @@ async function loadTree(root) {
 function renderWorkspaces() {
   const box = $("wslist");
   if (!WORKSPACES.length) {
-    box.innerHTML = '<div class="empty-tip">尚未添加工作区<br>· 新建题目：右侧「项目」区填写后创建<br>· 打开已有：点上方 ＋ 选择项目文件夹</div>';
+    box.innerHTML = '<div class="empty-tip">尚未添加工作区<br>· 新建题目：右侧「项目」区选题面后点「创建项目」<br>· 打开文件夹：点上方 ＋ 选任意文件夹</div>';
     return;
   }
   box.innerHTML = WORKSPACES.map(ws => {
@@ -498,7 +492,7 @@ function renderWorkspaces() {
         <span class="caret" data-toggle="${esc(ws.root)}">${open ? "▾" : "▸"}</span>
         <span class="wsname" data-activate="${esc(ws.root)}" title="${esc(ws.root)}">${esc(ws.title)}${missing}</span>
         ${ws.running ? '<span class="dotrun" title="该工作区有阶段在运行"></span>' : ""}
-        <span class="wscount">${done}/8</span>
+        <span class="wscount">${ws.is_project === false ? "非项目" : done + "/8"}</span>
         <span class="wsx" data-remove="${esc(ws.root)}" title="从列表移除（不影响磁盘文件）">×</span>
       </div>
       ${open ? `<div class="children">${renderTreeNodes(TREES[ws.root] || [], ws.root)}</div>` : ""}
@@ -553,7 +547,6 @@ function wireWsEvents(box) {
 async function markActive(root) {
   ACTIVE_ROOT = root;
   localStorage.setItem("magent_root", root);
-  $("proj_root").value = root;
   try {
     await api("/api/workspaces/add", {method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({root})});
@@ -565,7 +558,6 @@ async function activateWorkspace(root) {
   if (!root || root === ACTIVE_ROOT) return;
   ACTIVE_ROOT = root;
   localStorage.setItem("magent_root", root);
-  $("proj_root").value = root;
   subscribe();          // 重新订阅该工作区的日志（含回放）
   refresh();
   refreshWorkspaces();
@@ -806,38 +798,6 @@ async function refreshKeyBanner() {
 
 /* ============ 项目与工序（主界面） ============ */
 
-async function browseFolder() {
-  const api = window.pywebview && window.pywebview.api;
-  if (!api || !api.choose_folder) {
-    msg("proj_msg", "当前模式不支持文件夹选择，请手动输入路径", false);
-    return;
-  }
-  try {
-    const picked = await api.choose_folder();
-    if (picked) { $("proj_root").value = picked; pathLocked = true; }
-  } catch (e) { msg("proj_msg", "打开文件夹选择器失败：" + e.message, false); }
-}
-
-async function openRecent(root) {
-  if (!root) return;
-  $("proj_root").value = root;
-  await loadProject();
-  $("recent_sel").value = "";
-}
-
-function renderRecent(list) {
-  $("recent_sel").innerHTML = '<option value="">最近的项目…</option>' +
-    (list || []).map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
-  $("recent_wrap").classList.toggle("hidden", !(list && list.length));
-}
-
-async function refreshRecent() {
-  try {
-    const m = await api("/api/meta");
-    renderRecent(m.recent_projects || []);
-  } catch (e) { /* 忽略 */ }
-}
-
 function updateFileSummary() {
   const n1 = $("proj_files").files.length;
   const n2 = $("proj_dir").files.length;
@@ -847,64 +807,38 @@ function updateFileSummary() {
     : "";
 }
 
-/* 项目路径：按标题自动生成到默认位置（用户手动改过就不再覆盖） */
-let pathLocked = false;
-
-function sanitizeName(name) {
-  return String(name).replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ").trim();
+function wireFileInputs() {
+  $("proj_files").addEventListener("change", updateFileSummary);
+  $("proj_dir").addEventListener("change", updateFileSummary);
 }
 
-function autoFillPath() {
-  if (pathLocked) return;
-  const title = $("proj_title").value.trim();
-  const base = String(META.default_projects_dir || "").replace(/[\\/]+$/, "");
-  if (!title || !base) return;
-  $("proj_root").value = base + "\\" + sanitizeName(title);
-}
-
-function wirePathAutoFill() {
-  $("proj_title").addEventListener("input", autoFillPath);
-  $("proj_root").addEventListener("input", () => { pathLocked = true; });
-}
-
+/* 新建项目：项目名与位置由软件自动生成（年份-竞赛+题型），无需用户填写 */
 async function createProject() {
-  const root = $("proj_root").value.trim();
-  if (!root) return msg("proj_msg", "请填写项目路径", false);
   const fd = new FormData();
-  fd.append("root", root);
-  fd.append("title", $("proj_title").value.trim() || "未命名题目");
-  fd.append("focus", $("proj_focus").value);
-  // 单文件 + 整文件夹：文件夹内文件带相对路径提交，服务端按原结构存入 data/
+  fd.append("focus", $("proj_focus").value || "均衡");
   for (const f of $("proj_files").files) fd.append("files", f, f.name);
   for (const f of $("proj_dir").files) fd.append("files", f, f.webkitRelativePath || f.name);
-  msg("proj_msg", "初始化中…", true);
+  msg("proj_msg", "创建中…", true);
   try {
-    await api("/api/project", {method: "POST", body: fd});
-    await markActive(root);
-    msg("proj_msg", "已创建", true);
-    pathLocked = true;   // 已建项目，避免改标题时把路径改走
-    refreshRecent(); subscribe(); refresh(); refreshWorkspaces(true);
+    const st = await api("/api/project", {method: "POST", body: fd});
     $("proj_files").value = ""; $("proj_dir").value = ""; updateFileSummary();
-    // 为下一道题做准备：清空标题、解锁路径，让新标题重新自动生成路径
-    $("proj_title").value = "";
-    pathLocked = false;
+    msg("proj_msg", st.added_files ? `已把 ${st.added_files.length} 个文件加入已有项目`
+                                   : `已创建：${st.project_title || ""}`, true);
+    await markActive(st.root);
+    subscribe(); refresh(); refreshWorkspaces(true);
   } catch (e) { msg("proj_msg", e.message, false); }
 }
-async function loadProject(rootArg) {
-  const root = (rootArg || $("proj_root").value).trim();
-  if (!root) return msg("proj_msg", "请先选择项目文件夹", false);
+
+/* 把当前工作区（非项目文件夹）初始化为项目——用户点确认后才写入文件 */
+async function initCurrentWorkspace() {
+  if (!ACTIVE_ROOT) return;
   try {
-    const st = await api("/api/state?root=" + encodeURIComponent(root));
-    if (!st.manifest_ok) {
-      throw new Error("该文件夹不是 MAgent 项目（没有 project-manifest.json）。"
-        + "要开始新题目请点「创建项目」；要打开已有项目请选到含该文件的文件夹。");
-    }
-    await markActive(root);
-    pathLocked = true;
-    msg("proj_msg", "已打开", true);
-    api("/api/recent", {method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({root})}).then(refreshRecent).catch(() => {});
-    subscribe(); refresh(); refreshWorkspaces(true);
+    const st = await api("/api/project/init", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({root: ACTIVE_ROOT})});
+    const adopted = st.adopted_files || [];
+    msg("proj_msg", adopted.length ? `已初始化，并收纳 ${adopted.length} 个题面/数据文件到 data/`
+                                   : "已初始化为项目", true);
+    refreshWorkspaces(true); refresh(); subscribe();
   } catch (e) { msg("proj_msg", e.message, false); }
 }
 
@@ -948,6 +882,12 @@ async function refresh() {
   try { st = await api("/api/state?root=" + encodeURIComponent(ACTIVE_ROOT)); }
   catch (e) { return; }
   $("proj_now").textContent = st.manifest_ok ? st.project_title : "";
+
+  // 活动工作区还不是项目时，提示一键初始化
+  $("init_banner").classList.toggle("hidden", !!st.manifest_ok || !ACTIVE_ROOT);
+  if (!st.manifest_ok && ACTIVE_ROOT) {
+    $("init_banner_text").textContent = `${ACTIVE_ROOT} 还不是 MAgent 项目`;
+  }
 
   // 全流程运行状态：运行中显示停止、隐藏启动；否则按钮文案随进度变化
   const running = !!st.pipeline_running;
@@ -1023,14 +963,10 @@ async function markNA(key) {
 async function boot() {
   try { META = await api("/api/meta"); } catch (e) {}
   $("ver").textContent = "MAgent v" + (META.version || "");
-  renderRecent(META.recent_projects || []);
-  if (!$("proj_root").value && META.default_projects_dir) {
-    $("proj_root").placeholder = META.default_projects_dir + "\\2026A";
-  }
+  wireFileInputs();
   await refreshKeyBanner();
-  wirePathAutoFill();
   await refreshWorkspaces(true);
-  if (ACTIVE_ROOT) { $("proj_root").value = ACTIVE_ROOT; subscribe(); }
+  if (ACTIVE_ROOT) subscribe();
   refresh();
   timer = setInterval(refresh, 4000);
   setInterval(() => refreshWorkspaces(), 15000);  // 工作区状态与运行指示

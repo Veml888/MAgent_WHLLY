@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -82,6 +83,32 @@ def _extract_zip(content: bytes, dest: Path) -> list[str]:
     except zipfile.BadZipFile:
         return []
     return written
+
+
+def add_project_files(root: Path, problem_files: list[tuple[str, bytes]], log=_noop_log) -> list[str]:
+    """把题面/附件写入（或补进）项目的 data/ 目录：保留目录结构、zip 自动解压。"""
+    root = Path(root)
+    data_dir = root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    saved: list[str] = []
+    extracted: list[str] = []
+    for original_name, content in problem_files:
+        rel = _safe_upload_path(original_name, fallback=f"文件{len(saved) + 1}.bin")
+        if rel.name.lower().endswith(".zip"):
+            names = _extract_zip(content, data_dir)
+            if names:
+                extracted.extend(names)
+                continue  # 解压成功则不再保留压缩包本体
+        target = data_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        saved.append(rel.as_posix())
+    if saved:
+        preview = saved[:6] + ([f"…共 {len(saved)} 个"] if len(saved) > 6 else [])
+        log({"type": "stage", "msg": f"文件已写入 data/：{preview}"})
+    if extracted:
+        log({"type": "stage", "msg": f"压缩包已解压到 data/（{len(extracted)} 个文件）：{extracted[:8]}"})
+    return saved + extracted
 
 
 def init_project(
@@ -185,6 +212,26 @@ def _selected_model_names(manifest: ManifestStore) -> list[str]:
     return names
 
 
+def _upgrade_placeholder_title(manifest: ManifestStore, letter: object) -> str | None:
+    """赛题分析完成后：把「YYYY-国赛（待定）」改成「YYYY-国赛X题」并写回 manifest。
+
+    只改显示名，不移动目录（路径保持稳定，避免快捷方式/工作区失效）。
+    """
+    value = str(letter or "").strip().upper()
+    if not re.fullmatch(r"[A-E]", value):
+        return None
+    title = str(manifest.data.get("project", {}).get("title", ""))
+    if "待定" not in title:
+        return None
+    new_title = title.replace("（待定）", f"{value}题")
+    manifest.data.setdefault("project", {})["title"] = new_title
+    manifest.add_change_log(
+        by="MAgent/engine",
+        action=f"项目名由「{title}」自动更新为「{new_title}」（赛题分析确定题号）",
+    )
+    return new_title
+
+
 def _finalize(
     root: Path,
     stage: pipeline.StageDef,
@@ -194,6 +241,9 @@ def _finalize(
 ) -> list[dict]:
     """门禁全过后记账：登记产物、填阶段字段、翻状态、追加 change_log。"""
     registered = manifest.register_artifacts(finish.artifacts, stage.key)
+
+    if stage.key == "analysis":
+        _upgrade_placeholder_title(manifest, (finish.extras or {}).get("problem_letter"))
 
     fields: dict = {}
     for field_name, path in stage.finalize_fields.items():
@@ -307,6 +357,11 @@ def run_stage(
         )
     if stage.key == "verification":
         extra_rules = "- 若验收结论为有条件通过，finish.extras 传 {\"conditional\": true} 并在 summary 说明范围。"
+    if stage.key == "analysis":
+        extra_rules = (
+            "- finish.extras 需包含 problem_letter：本题的题号字母（如 \"A\"/\"B\"/\"C\"）。"
+            "能确定就填字母；只在确实无法判断时才填空字符串 \"\"。"
+        )
 
     system_prompt = pipeline.build_system_prompt(
         stage, skills_root, root, sys.executable, extra_rules
