@@ -331,7 +331,7 @@
         <span class="hint" id="file_summary"></span>
         <span class="spacer"></span>
         <button class="primary" onclick="createProject()">创建项目</button>
-        <button onclick="loadProject()">打开已有项目</button>
+        <button onclick="openProjectDialog()">打开已有项目</button>
         <span id="recent_wrap" class="hidden">
           <select id="recent_sel" onchange="openRecent(this.value)">
             <option value="">最近的项目…</option>
@@ -880,11 +880,15 @@ async function createProject() {
     pathLocked = false;
   } catch (e) { msg("proj_msg", e.message, false); }
 }
-async function loadProject() {
-  const root = $("proj_root").value.trim();
-  if (!root) return msg("proj_msg", "请填写项目路径", false);
+async function loadProject(rootArg) {
+  const root = (rootArg || $("proj_root").value).trim();
+  if (!root) return msg("proj_msg", "请先选择项目文件夹", false);
   try {
-    await api("/api/state?root=" + encodeURIComponent(root));
+    const st = await api("/api/state?root=" + encodeURIComponent(root));
+    if (!st.manifest_ok) {
+      throw new Error("该文件夹不是 MAgent 项目（没有 project-manifest.json）。"
+        + "要开始新题目请点「创建项目」；要打开已有项目请选到含该文件的文件夹。");
+    }
     await markActive(root);
     pathLocked = true;
     msg("proj_msg", "已打开", true);
@@ -892,6 +896,20 @@ async function loadProject() {
       body: JSON.stringify({root})}).then(refreshRecent).catch(() => {});
     subscribe(); refresh(); refreshWorkspaces(true);
   } catch (e) { msg("proj_msg", e.message, false); }
+}
+
+/** 「打开已有项目」：桌面窗口直接弹文件夹选择器，浏览器模式退回读路径框 */
+async function openProjectDialog() {
+  const native = window.pywebview && window.pywebview.api;
+  if (native && native.choose_folder) {
+    let picked = null;
+    try { picked = await native.choose_folder(); } catch (e) { picked = null; }
+    if (!picked) return;                     // 用户取消
+    $("proj_root").value = picked;
+    await loadProject(picked);
+  } else {
+    await loadProject();                     // 浏览器模式：按路径框打开
+  }
 }
 
 async function subscribe() {

@@ -124,7 +124,7 @@ def version():
 
 @app.get("/api/meta")
 def meta():
-    """给前端用的元信息：阶段清单（设置页做路由用）+ 最近项目。"""
+    """给前端用的元信息：阶段清单（设置页做路由用）+ 最近项目 + 默认项目位置。"""
     cfg = config_mod.load()
     return {
         "version": __version__,
@@ -133,8 +133,20 @@ def meta():
             for key in pipeline.ORDER
         ],
         "recent_projects": cfg.get("recent_projects", []),
-        "default_projects_dir": str(Path.home() / "Documents" / "MAgent项目"),
+        "default_projects_dir": _default_projects_dir(),
     }
+
+
+def _default_projects_dir() -> str:
+    """新项目默认父目录：优先 D 盘根目录（可写时），否则退回「文档\\MAgent项目」。"""
+    for drive in ("D:/", "E:/"):
+        root = Path(drive)
+        try:
+            if root.is_dir() and os.access(root, os.W_OK):
+                return str(root)
+        except OSError:
+            continue
+    return str(Path.home() / "Documents" / "MAgent项目")
 
 
 @app.get("/api/config")
