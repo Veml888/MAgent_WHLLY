@@ -4,7 +4,7 @@ uvicorn>=0.29
 rich>=13.0
 PyMuPDF>=1.24
 jsonschema>=4.20
-python-multipart>=0.0.9
+python-multipart>=0.0.32
 pywebview>=6.0
 
 # ---- 数模求解与绘图所需（编程阶段 / 数据图阶段 / 示意图渲染）----
