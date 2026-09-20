@@ -60,11 +60,11 @@ Source: "{root}\\dist\\MAgent\\*"; DestDir: "{{app}}"; Flags: ignoreversion recu
 Source: "{root}\\assets\\magent.ico"; DestDir: "{{app}}"; Flags: ignoreversion
 
 [Icons]
-Name: "{{autoprograms}}\\MAgent"; Filename: "{{app}}\\runtime\\pythonw.exe"; Parameters: "-m magent serve"; WorkingDir: "{{app}}"; IconFilename: "{{app}}\\magent.ico"
-Name: "{{autodesktop}}\\MAgent"; Filename: "{{app}}\\runtime\\pythonw.exe"; Parameters: "-m magent serve"; WorkingDir: "{{app}}"; IconFilename: "{{app}}\\magent.ico"; Tasks: desktopicon
+Name: "{{autoprograms}}\\MAgent"; Filename: "{{app}}\\MAgent.exe"; WorkingDir: "{{app}}"; IconFilename: "{{app}}\\magent.ico"
+Name: "{{autodesktop}}\\MAgent"; Filename: "{{app}}\\MAgent.exe"; WorkingDir: "{{app}}"; IconFilename: "{{app}}\\magent.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{{app}}\\runtime\\pythonw.exe"; Parameters: "-m magent serve"; WorkingDir: "{{app}}"; Description: "立即运行 MAgent"; Flags: nowait postinstall skipifsilent
+Filename: "{{app}}\\MAgent.exe"; WorkingDir: "{{app}}"; Description: "立即运行 MAgent"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{{app}}"
@@ -109,6 +109,9 @@ def main() -> int:
     portable = ROOT / "dist" / "MAgent"
     if not (portable / "runtime" / "python.exe").is_file():
         print("缺少 dist/MAgent/（便携版整套），请先运行 python scripts/build_portable.py")
+        return 1
+    if not (portable / "MAgent.exe").is_file():  # 主程序启动器（约 16KB）
+        print("缺少 dist/MAgent/MAgent.exe 启动器，请先运行 python scripts/make_launcher.py")
         return 1
     iscc = find_iscc()
     if ensure_chinese_isl(iscc):

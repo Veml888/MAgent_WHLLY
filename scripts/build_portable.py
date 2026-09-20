@@ -92,6 +92,12 @@ def copy_package() -> None:
     print(f"magent 包已就位（{n} 个文件，含内置 skills）")
 
 
+def build_launcher() -> None:
+    """生成 dist/MAgent/MAgent.exe（原生启动器，转发到内嵌运行时）。"""
+    script = ROOT / "scripts" / "make_launcher.py"
+    subprocess.run([sys.executable, str(script)], check=True, cwd=ROOT)
+
+
 def write_launcher_and_readme() -> None:
     # 桌面版：pythonw 无控制台窗口，双击 = 打开软件窗口；start 让 cmd 立即退出
     (BUILD / "启动MAgent.bat").write_text(
@@ -174,6 +180,7 @@ def main() -> int:
     install_deps()
     copy_package()
     write_launcher_and_readme()
+    build_launcher()
 
     # 冒烟：内嵌解释器能加载 magent 并跑 --version；桌面壳依赖齐全
     smoke = subprocess.run(
