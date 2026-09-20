@@ -1,10 +1,17 @@
+# Dependabot 配置：只保留安全更新提醒，不做版本升级 PR。
+#
+# 说明：本项目以「内置固定依赖的安装包」分发（用户装的是打包好的运行时，
+# 不读取 requirements.txt），因此抬高版本下限对使用者无意义，只会制造待办。
+# 把 open-pull-requests-limit 设为 0 = 关闭版本升级 PR，但**仍会收到安全漏洞更新**。
 version: 2
 updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 0
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 0
