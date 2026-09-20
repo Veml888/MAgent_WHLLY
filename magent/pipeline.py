@@ -211,7 +211,10 @@ def build_user_prompt(
     upstream = "\n".join(f"  - {p}" for p in stage.exists) or "  - （无）"
     files = "、".join(problem_files) if problem_files else "（data/ 下暂无文件，请先与用户确认题面）"
     focus = prefs.get("focus", "均衡")
-    subproblems = prefs.get("subproblems", "待赛题分析确定")
+    subproblems = str(prefs.get("subproblems") or "").strip()
+    if subproblems == "待赛题分析确定":
+        subproblems = ""
+    prefs_line = f"侧重点={focus}" + (f"；子问题数={subproblems}" if subproblems else "")
     if resumed:
         head = (
             f"本阶段「{stage.title}」的上一会话被中断。请先用 list_dir/read_file 盘点 "
@@ -221,7 +224,7 @@ def build_user_prompt(
         head = f"请开始执行「{stage.title}」阶段（owner skill：{stage.skill}）。"
     return f"""{head}
 
-- 用户偏好：侧重点={focus}；子问题数={subproblems}
+- 用户偏好：{prefs_line}
 - 题面与数据：{files}
 - 本阶段结束时必须存在的产物（相对 PROJECT_ROOT）：
 {upstream}

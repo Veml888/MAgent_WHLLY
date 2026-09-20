@@ -212,8 +212,8 @@
     background: linear-gradient(180deg, var(--bg1), rgba(18,22,29,.7));
     border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px;
   }
-  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-  @media (max-width: 1120px) { .grid4 { grid-template-columns: repeat(2, 1fr); } }
+  .grid4 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 1120px) { .grid4 { grid-template-columns: 1fr; } }
   .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 18px; }
   #log {
     background: var(--bg1); border: 1px solid var(--line); border-radius: 12px;
@@ -321,10 +321,6 @@
           <select id="proj_focus">
             <option>均衡</option><option>精度优先</option>
             <option>可解释性优先</option><option>速度优先</option>
-          </select></div>
-        <div><label>子问题数</label>
-          <select id="proj_sub">
-            <option>待赛题分析确定</option><option>2</option><option>3</option><option>4</option><option>5</option>
           </select></div>
       </div>
       <div class="row">
@@ -841,7 +837,6 @@ async function createProject() {
   fd.append("root", root);
   fd.append("title", $("proj_title").value.trim() || "未命名题目");
   fd.append("focus", $("proj_focus").value);
-  fd.append("subproblems", $("proj_sub").value);
   // 单文件 + 整文件夹：文件夹内文件带相对路径提交，服务端按原结构存入 data/
   for (const f of $("proj_files").files) fd.append("files", f, f.name);
   for (const f of $("proj_dir").files) fd.append("files", f, f.webkitRelativePath || f.name);

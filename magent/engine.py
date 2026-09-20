@@ -151,12 +151,12 @@ def _patch_plan_prefs(plan_path: Path, prefs: dict) -> None:
     if not plan_path.is_file():
         return
     text = plan_path.read_text(encoding="utf-8", errors="replace")
-    block = (
-        f"\n## 用户偏好（MAgent 记录）\n\n"
-        f"- 侧重点：{prefs.get('focus', '均衡')}\n"
-        f"- 子问题数：{prefs.get('subproblems', '待赛题分析确定')}\n"
-        f"- 记录时间：{time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-    )
+    sub = str(prefs.get("subproblems") or "").strip()
+    lines = ["", "## 用户偏好（MAgent 记录）", "", f"- 侧重点：{prefs.get('focus', '均衡')}"]
+    if sub and sub != "待赛题分析确定":  # 未显式指定时不写入
+        lines.append(f"- 子问题数：{sub}")
+    lines.append(f"- 记录时间：{time.strftime('%Y-%m-%d %H:%M:%S')}")
+    block = "\n".join(lines) + "\n"
     if "用户偏好（MAgent 记录）" not in text:
         plan_path.write_text(text.rstrip() + "\n" + block, encoding="utf-8")
 
