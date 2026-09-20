@@ -81,6 +81,18 @@ class ToolBox:
             return self._read_pdf(path)
         if suffix == ".docx":
             return self._read_docx(path)
+        if suffix == ".xlsx":
+            return self._read_xlsx(path)
+        if suffix == ".xls":
+            return (
+                f"[{path_str}] 旧版 .xls 无法直接解析。请在编程阶段用 pandas 读取"
+                "（pd.read_excel 需要 xlrd 时改用 .xlsx），或先另存为 .xlsx/.csv。"
+            )
+        if suffix in {".zip", ".rar", ".7z"}:
+            return (
+                f"[{path_str}] 压缩包不能直接读取。编程阶段可用 python 的 zipfile 解压后再处理"
+                "（若为 .rar/.7z 需要先转为 zip）。"
+            )
         if suffix in {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff"}:
             return (
                 f"[二进制图片：{path_str}] 模型无法直接读取图片内容。"
@@ -140,6 +152,52 @@ class ToolBox:
         if len(text) > MAX_READ_CHARS:
             text = text[:MAX_READ_CHARS] + "\n...[内容过长已截断]"
         return f"[{path.name}] DOCX 文本内容：\n{text}"
+
+    def _read_xlsx(self, path: Path, max_sheets: int = 3, max_rows: int = 120, max_cols: int = 30) -> str:
+        """用标准库解析 .xlsx（zip + XML），无需 openpyxl，供模型审计附件数据。"""
+        import xml.etree.ElementTree as ET
+        import zipfile
+
+        NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+        try:
+            with zipfile.ZipFile(path) as zf:
+                shared: list[str] = []
+                if "xl/sharedStrings.xml" in zf.namelist():
+                    root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+                    for si in root.iter(f"{{{NS}}}si"):
+                        shared.append("".join(t.text or "" for t in si.iter(f"{{{NS}}}t")))
+                sheets = sorted(
+                    n for n in zf.namelist()
+                    if n.startswith("xl/worksheets/sheet") and n.endswith(".xml")
+                )
+                if not sheets:
+                    raise ToolError(f"xlsx 内没有工作表：{path.name}")
+                parts: list[str] = []
+                for sheet_name in sheets[:max_sheets]:
+                    root = ET.fromstring(zf.read(sheet_name))
+                    rows_out: list[str] = []
+                    count = 0
+                    for row in root.iter(f"{{{NS}}}row"):
+                        if count >= max_rows:
+                            rows_out.append(f"...[超过 {max_rows} 行截断]")
+                            break
+                        cells: list[str] = []
+                        for cell in row.iter(f"{{{NS}}}c"):
+                            value_el = cell.find(f"{{{NS}}}v")
+                            raw = value_el.text if value_el is not None else ""
+                            if cell.get("t") == "s" and raw and raw.isdigit() and int(raw) < len(shared):
+                                raw = shared[int(raw)]
+                            cells.append((raw or "").strip())
+                        rows_out.append(" | ".join(cells[:max_cols]))
+                        count += 1
+                    parts.append(f"--- {sheet_name.split('/')[-1]}（前 {count} 行）---\n"
+                                 + "\n".join(rows_out))
+        except zipfile.BadZipFile as exc:
+            raise ToolError(f"无法解析 xlsx：{exc}") from exc
+        text = "\n".join(parts)
+        if len(text) > MAX_READ_CHARS:
+            text = text[:MAX_READ_CHARS] + "\n...[内容过长已截断，编程阶段请用 pandas 完整读取]"
+        return f"[{path.name}] Excel 内容（仅预览，完整数据请在编程阶段用 pandas 读取）：\n{text}"
 
     def write_file(self, path_str: str, content: str) -> str:
         path = self.resolve_in_root(path_str)

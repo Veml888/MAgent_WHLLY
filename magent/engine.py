@@ -46,6 +46,29 @@ def _run_skeleton_script(script: Path, args: list[str], root: Path) -> None:
         raise RuntimeError(f"{script.name} 失败（exit {proc.returncode}）：{(proc.stderr or proc.stdout)[-800:]}")
 
 
+def _extract_zip(content: bytes, dest: Path) -> list[str]:
+    """把上传的 zip 解压进 data/（跳过目录项与越界路径）。返回写入的相对路径。"""
+    import io
+    import zipfile
+
+    written: list[str] = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                rel = Path(info.filename.replace("\\", "/"))
+                if rel.is_absolute() or ".." in rel.parts:
+                    continue  # 防路径穿越
+                target = dest / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(zf.read(info))
+                written.append(rel.as_posix())
+    except zipfile.BadZipFile:
+        return []
+    return written
+
+
 def init_project(
     root: Path,
     title: str,
@@ -54,17 +77,26 @@ def init_project(
     skills_root: Path,
     log=_noop_log,
 ) -> ManifestStore:
-    """创建 PROJECT_ROOT：落盘题面 → 跑仓库骨架脚本 → 引擎记账初始状态。"""
+    """创建 PROJECT_ROOT：落盘题面/数据 → 跑仓库骨架脚本 → 引擎记账初始状态。"""
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     data_dir = root / "data"
     data_dir.mkdir(exist_ok=True)
-    saved_names = []
+    saved_names: list[str] = []
+    extracted: list[str] = []
     for original_name, content in problem_files:
         safe_name = Path(original_name).name or f"题目{len(saved_names) + 1}.bin"
+        if safe_name.lower().endswith(".zip"):
+            names = _extract_zip(content, data_dir)
+            if names:
+                extracted.extend(names)
+                continue  # 解压成功则不再保留压缩包本体
         (data_dir / safe_name).write_bytes(content)
         saved_names.append(safe_name)
-    log({"type": "stage", "msg": f"题面文件已写入 data/：{saved_names}"})
+    if saved_names:
+        log({"type": "stage", "msg": f"文件已写入 data/：{saved_names}"})
+    if extracted:
+        log({"type": "stage", "msg": f"压缩包已解压到 data/（{len(extracted)} 个文件）：{extracted[:8]}"})
 
     orchestrator_scripts = skills_root / "mm-orchestrator" / "scripts"
     _run_skeleton_script(
@@ -112,10 +144,18 @@ def _patch_plan_prefs(plan_path: Path, prefs: dict) -> None:
 
 
 def _list_problem_files(root: Path) -> list[str]:
+    """列出 data/ 下的文件（递归，含解压出来的子目录），最多 60 项。"""
     data_dir = root / "data"
     if not data_dir.is_dir():
         return []
-    return sorted(p.name for p in data_dir.iterdir() if p.is_file())
+    files: list[str] = []
+    for path in sorted(data_dir.rglob("*")):
+        if path.is_file():
+            files.append(path.relative_to(data_dir).as_posix())
+        if len(files) >= 60:
+            files.append("…（更多文件略）")
+            break
+    return files
 
 
 def _selected_model_names(manifest: ManifestStore) -> list[str]:

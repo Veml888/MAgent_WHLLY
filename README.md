@@ -73,6 +73,15 @@
 - Windows 10/11 + Python 3.10+（本机已验证 3.13）
 - 可选：TeX 发行版（论文编译需要 xelatex）、Poppler 的 `pdftocairo`（TikZ 图转 PNG）
   —— `python -m magent doctor` 会逐项自检并给出安装建议。
+- 分发包**已内置科学计算栈**（numpy / pandas / scipy / matplotlib / scikit-learn /
+  statsmodels / sympy / networkx / pulp / openpyxl / Pillow），编程与绘图阶段无需另装。
+
+## 题面与数据附件
+
+- 支持一次上传多个文件：题面（PDF/DOCX/MD/TXT）+ 数据附件（Excel/CSV/zip 等）
+- 全部原样存入项目 `data/`（对模型只读，防止篡改题面数据）；zip 会自动解压
+- 模型可直接读 PDF/DOCX/TXT/CSV/xlsx 预览；完整数据在编程阶段用 pandas 处理
+- 图片格式题面无法被模型识别，请先转成 PDF 或文字
 
 ## 目录约定
 

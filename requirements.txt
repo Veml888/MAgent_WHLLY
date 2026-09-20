@@ -6,3 +6,16 @@ PyMuPDF>=1.24
 jsonschema>=4.20
 python-multipart>=0.0.9
 pywebview>=6.0
+
+# ---- 数模求解与绘图所需（编程阶段 / 数据图阶段 / 示意图渲染）----
+numpy>=1.26
+pandas>=2.2
+scipy>=1.13
+matplotlib>=3.8
+scikit-learn>=1.4
+statsmodels>=0.14
+sympy>=1.12
+networkx>=3.2
+pulp>=2.8
+openpyxl>=3.1
+Pillow>=10.0

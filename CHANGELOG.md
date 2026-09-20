@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- **数据附件支持**：文件选择器放开格式（Excel / CSV / zip / 图片等均可上传），上传的文件与数据附件统一存入项目 `data/` 目录
+- **模型可直读 Excel**：`.xlsx` 用标准库解析（无需额外依赖），分析阶段可直接审计附件数据表
+- **zip 自动解压**：上传压缩包自动解压进 `data/`（含路径穿越防护），`data/` 子目录递归展示给模型
+- **内置科学计算栈**：运行环境预装 numpy / pandas / scipy / matplotlib / scikit-learn / statsmodels / sympy / networkx / pulp / openpyxl / Pillow，编程阶段与数据图阶段开箱即用
+
 ## [0.2.0] - 2026-09-20
 
 ### Added
