@@ -9,7 +9,7 @@ description = "MAgent —— CUMCM 数学建模全流程 Agent 软件（BYOK 接
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "openai>=1.40",
+    "openai>=3.14.1",
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "rich>=13.0",
