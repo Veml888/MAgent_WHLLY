@@ -40,6 +40,8 @@ DEFAULTS: dict = {
         "run_timeout_sec": 600,  # run_command 默认超时
     },
     "recent_projects": [],
+    # 侧边栏「工作区」列表：可同时打开多个项目（各自独立运行）
+    "workspaces": [],
 }
 
 

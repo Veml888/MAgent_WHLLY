@@ -128,3 +128,48 @@ def test_workspace_file_tree_and_preview(client, tmp_path):
     # 越界访问被拒
     assert client.get("/api/file", params={"root": str(root), "path": "../outside.txt"}).status_code == 400
     assert client.get("/api/file", params={"root": str(root), "path": "nope.txt"}).status_code == 404
+
+
+def test_workspaces_multi_project(client, tmp_path):
+    """多工作区：可同时登记多个项目，各自状态独立呈现。"""
+    a = tmp_path / "题A"
+    b = tmp_path / "题B"
+    client.post("/api/project", data={"root": str(a), "title": "2026 A 题"})
+    client.post("/api/project", data={"root": str(b), "title": "2026 B 题"})
+
+    ws = client.get("/api/workspaces").json()["workspaces"]
+    titles = {w["title"] for w in ws}
+    assert {"2026 A 题", "2026 B 题"} <= titles
+    assert all(w["running"] is None for w in ws)
+    assert all(len(w["stages"]) == 8 for w in ws)
+
+    # 移除一个工作区不影响磁盘文件
+    client.post("/api/workspaces/remove", json={"root": str(a)})
+    ws2 = client.get("/api/workspaces").json()["workspaces"]
+    assert all(w["root"] != str(a) for w in ws2)
+    assert (a / "project-manifest.json").is_file()
+
+    # 添加非项目目录被拒
+    bad = tmp_path / "空目录"
+    bad.mkdir()
+    assert client.post("/api/workspaces/add", json={"root": str(bad)}).status_code == 400
+
+
+def test_stage_locks_are_per_workspace(client, tmp_path, monkeypatch):
+    """两个工作区可各自独立运行阶段（运行锁互不干扰）。"""
+    a = tmp_path / "A"
+    b = tmp_path / "B"
+    client.post("/api/project", data={"root": str(a), "title": "A"})
+    client.post("/api/project", data={"root": str(b), "title": "B"})
+
+    import magent.server as srv
+    from magent import config as cm
+
+    cfg = cm.load()
+    cfg["providers"] = [{"id": "p", "name": "P", "base_url": "http://x", "api_key": "k", "model": "m"}]
+    cfg["routing"] = {"default": "p"}
+    cm.save(cfg)
+
+    monkeypatch.setattr(srv.engine, "run_stage", lambda *a_, **k_: None)
+    assert client.post("/api/stage/start", json={"root": str(a), "stage": "analysis"}).status_code == 200
+    assert client.post("/api/stage/start", json={"root": str(b), "stage": "analysis"}).status_code == 200

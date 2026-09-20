@@ -66,7 +66,7 @@
     padding: 1px 8px; font-size: 13px; line-height: 1.4; border-radius: 6px;
   }
   .tree { overflow-y: auto; flex: 1; min-height: 80px; font-size: 13px; }
-  .tree .empty-tip { color: var(--soft); font-size: 12.5px; padding: 8px 2px; }
+  .tree .empty-tip { color: var(--soft); font-size: 12.5px; padding: 8px 2px; line-height: 1.6; }
   .node {
     display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px;
     cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -79,6 +79,29 @@
   .node .nm { overflow: hidden; text-overflow: ellipsis; }
   .node .sz { margin-left: auto; color: var(--soft); font-family: var(--mono); font-size: 10.5px; flex: none; }
   .tree .children { margin-left: 10px; border-left: 1px dashed rgba(255,255,255,.07); padding-left: 4px; }
+
+  /* ---- 多工作区条目 ---- */
+  .wsitem { border-radius: 8px; margin-bottom: 2px; }
+  .wsitem.active { background: rgba(78,208,196,.10); box-shadow: inset 2px 0 0 var(--acc); }
+  .wsrow { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
+  .wsrow:hover { background: rgba(255,255,255,.05); }
+  .wsrow .caret { color: var(--soft); font-family: var(--mono); font-size: 11px; width: 12px; flex: none; }
+  .wsrow .wsname {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 13.5px; font-weight: 600;
+  }
+  .wsitem.active .wsname { color: var(--acc); }
+  .wsrow .wscount { font-family: var(--mono); font-size: 10.5px; color: var(--soft); flex: none; }
+  .wsrow .dotrun {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--acc); flex: none;
+    box-shadow: 0 0 8px rgba(78,208,196,.9); animation: pulse2 1.2s ease-in-out infinite;
+  }
+  .wsrow .wsx {
+    color: var(--soft); font-size: 14px; line-height: 1; padding: 0 3px; flex: none;
+    visibility: hidden; cursor: pointer;
+  }
+  .wsrow:hover .wsx { visibility: visible; }
+  .wsrow .wsx:hover { color: var(--fail); }
   .railfoot { margin-top: auto; font-size: 12.5px; color: var(--soft); font-family: var(--mono); }
 
   /* ---- 文件预览视图 ---- */
@@ -263,9 +286,10 @@
     <div class="ws-head">
       <span>工作区</span>
       <span class="spacer"></span>
-      <button class="mini" onclick="refreshTree()" title="刷新">↻</button>
+      <button class="mini" onclick="addWorkspacePrompt()" title="添加已有项目到工作区">＋</button>
+      <button class="mini" onclick="refreshWorkspaces(true)" title="刷新">↻</button>
     </div>
-    <div id="filetree" class="tree"><div class="empty-tip">尚未打开项目</div></div>
+    <div id="wslist" class="tree"><div class="empty-tip">尚未添加工作区</div></div>
   </div>
 
   <div class="railfoot">
@@ -402,7 +426,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-let currentRoot = localStorage.getItem("magent_root") || "";
+let ACTIVE_ROOT = localStorage.getItem("magent_root") || "";
 let es = null, timer = null;
 let META = { stages: [] };
 
@@ -428,69 +452,156 @@ async function api(path, opts) {
   return resp.json();
 }
 
-/* ============ 工作区文件树 ============ */
-let TREE = [];
-let EXPANDED = new Set();
+/* ============ 多工作区 + 文件树 ============ */
+let WORKSPACES = [];              // [{root,title,exists,running,stages}]
+let WS_OPEN = new Set();          // 展开文件树的工作区
+let TREES = {};                   // root -> tree
+let DIR_OPEN = {};                // root -> Set(展开的目录路径)
 let currentViewPath = "";
-let treeTimer = null;
+let wsTimer = null;
 
 const fmtSize = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} K` : `${(n / 1048576).toFixed(1)} M`;
 
-async function refreshTree() {
-  if (!currentRoot) {
-    $("filetree").innerHTML = '<div class="empty-tip">尚未打开项目</div>';
+async function refreshWorkspaces(reloadTrees = false) {
+  try {
+    const data = await api("/api/workspaces");
+    WORKSPACES = data.workspaces || [];
+  } catch (e) { return; }
+  for (const ws of WORKSPACES) {
+    if (WS_OPEN.has(ws.root) && (reloadTrees || !TREES[ws.root] || ws.running)) {
+      await loadTree(ws.root);
+    }
+  }
+  renderWorkspaces();
+}
+
+async function loadTree(root) {
+  try {
+    const data = await api("/api/files?root=" + encodeURIComponent(root));
+    TREES[root] = data.tree || [];
+  } catch (e) { TREES[root] = []; }
+}
+
+function renderWorkspaces() {
+  const box = $("wslist");
+  if (!WORKSPACES.length) {
+    box.innerHTML = '<div class="empty-tip">尚未添加工作区<br>在右侧「项目」区创建或打开项目</div>';
     return;
   }
-  try {
-    const data = await api("/api/files?root=" + encodeURIComponent(currentRoot));
-    TREE = data.tree || [];
-    renderTree();
-  } catch (e) { /* 静默：文件树失败不打断主流程 */ }
+  box.innerHTML = WORKSPACES.map(ws => {
+    const active = ws.root === ACTIVE_ROOT ? " active" : "";
+    const open = WS_OPEN.has(ws.root);
+    const done = Object.values(ws.stages || {}).filter(s => s === "complete").length;
+    const missing = ws.exists === false ? ' <span class="hint">(目录不存在)</span>' : "";
+    return `<div class="wsitem${active}">
+      <div class="wsrow">
+        <span class="caret" data-toggle="${esc(ws.root)}">${open ? "▾" : "▸"}</span>
+        <span class="wsname" data-activate="${esc(ws.root)}" title="${esc(ws.root)}">${esc(ws.title)}${missing}</span>
+        ${ws.running ? '<span class="dotrun" title="该工作区有阶段在运行"></span>' : ""}
+        <span class="wscount">${done}/8</span>
+        <span class="wsx" data-remove="${esc(ws.root)}" title="从列表移除（不影响磁盘文件）">×</span>
+      </div>
+      ${open ? `<div class="children">${renderTreeNodes(TREES[ws.root] || [], ws.root)}</div>` : ""}
+    </div>`;
+  }).join("");
+  wireWsEvents(box);
 }
 
-function renderTree() {
-  const box = $("filetree");
-  if (!TREE.length) { box.innerHTML = '<div class="empty-tip">项目目录为空</div>'; return; }
-  box.innerHTML = renderNodes(TREE, 0);
-}
-
-function renderNodes(nodes, depth) {
+function renderTreeNodes(nodes, root) {
+  const exp = DIR_OPEN[root] || (DIR_OPEN[root] = new Set());
   return nodes.map(n => {
     if (n.type === "dir") {
-      const open = EXPANDED.has(n.path);
+      const open = exp.has(n.path);
       return `<div>
-        <button class="node dir" onclick="toggleDir('${esc(n.path)}')" title="${esc(n.path)}">
+        <button class="node dir" data-dirtoggle="${esc(n.path)}" data-root="${esc(root)}" title="${esc(n.path)}">
           <span class="ic">${open ? "▾" : "▸"}</span><span class="nm">${esc(n.name)}</span>
         </button>
-        ${open ? `<div class="children">${renderNodes(n.children || [], depth + 1)}</div>` : ""}
+        ${open ? `<div class="children">${renderTreeNodes(n.children || [], root)}</div>` : ""}
       </div>`;
     }
-    return `<button class="node" onclick="openViewer('${esc(n.path)}')" title="${esc(n.path)}">
+    return `<button class="node" data-file="${esc(n.path)}" data-root="${esc(root)}" title="${esc(n.path)}">
       <span class="ic">·</span><span class="nm">${esc(n.name)}</span><span class="sz">${fmtSize(n.size || 0)}</span>
     </button>`;
   }).join("");
 }
 
-function toggleDir(path) {
-  if (EXPANDED.has(path)) EXPANDED.delete(path); else EXPANDED.add(path);
-  renderTree();
+function wireWsEvents(box) {
+  box.querySelectorAll("[data-toggle]").forEach(el => el.onclick = (ev) => {
+    ev.stopPropagation();
+    const root = el.dataset.toggle;
+    if (WS_OPEN.has(root)) WS_OPEN.delete(root);
+    else { WS_OPEN.add(root); loadTree(root).then(renderWorkspaces); }
+    renderWorkspaces();
+  });
+  box.querySelectorAll("[data-activate]").forEach(el => el.onclick = () => activateWorkspace(el.dataset.activate));
+  box.querySelectorAll("[data-remove]").forEach(el => el.onclick = async (ev) => {
+    ev.stopPropagation();
+    await api("/api/workspaces/remove", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({root: el.dataset.remove})});
+    WS_OPEN.delete(el.dataset.remove);
+    refreshWorkspaces(true);
+  });
+  box.querySelectorAll("[data-dirtoggle]").forEach(el => el.onclick = () => {
+    const root = el.dataset.root, path = el.dataset.dirtoggle;
+    const exp = DIR_OPEN[root] || (DIR_OPEN[root] = new Set());
+    if (exp.has(path)) exp.delete(path); else exp.add(path);
+    renderWorkspaces();
+  });
+  box.querySelectorAll("[data-file]").forEach(el => el.onclick = () => openViewer(el.dataset.root, el.dataset.file));
 }
 
-function scheduleTreeRefresh() {
-  if (treeTimer) clearTimeout(treeTimer);
-  treeTimer = setTimeout(refreshTree, 1500);
+async function markActive(root) {
+  ACTIVE_ROOT = root;
+  localStorage.setItem("magent_root", root);
+  $("proj_root").value = root;
+  try {
+    await api("/api/workspaces/add", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({root})});
+  } catch (e) { /* 非项目目录等情形不阻断主流程 */ }
+  await refreshWorkspaces(true);
+}
+
+async function activateWorkspace(root) {
+  if (!root || root === ACTIVE_ROOT) return;
+  ACTIVE_ROOT = root;
+  localStorage.setItem("magent_root", root);
+  $("proj_root").value = root;
+  subscribe();          // 重新订阅该工作区的日志（含回放）
+  refresh();
+  refreshWorkspaces();
+}
+
+async function addWorkspacePrompt() {
+  const api_ = window.pywebview && window.pywebview.api;
+  if (!api_ || !api_.choose_folder) {
+    msg("proj_msg", "请在「项目」区填路径后点「打开已有项目」", false);
+    return;
+  }
+  const picked = await api_.choose_folder();
+  if (!picked) return;
+  try {
+    await api("/api/workspaces/add", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({root: picked})});
+    await refreshWorkspaces(true);
+    activateWorkspace(picked);
+  } catch (e) { alert("添加工作区失败：" + e.message); }
+}
+
+function scheduleWsRefresh() {
+  if (wsTimer) clearTimeout(wsTimer);
+  wsTimer = setTimeout(() => refreshWorkspaces(true), 1500);
 }
 
 /* ============ 文件预览 ============ */
-async function openViewer(path) {
+async function openViewer(root, path) {
   currentViewPath = path;
   $("viewer_name").textContent = path;
   $("viewer_meta").textContent = "加载中…";
   $("viewer_body").innerHTML = "";
   $("viewer").classList.remove("hidden");
   try {
-    const info = await api(`/api/file?root=${encodeURIComponent(currentRoot)}&path=${encodeURIComponent(path)}`);
-    const raw = `/api/raw?root=${encodeURIComponent(currentRoot)}&path=${encodeURIComponent(path)}`;
+    const info = await api(`/api/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`);
+    const raw = `/api/raw?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`;
     const size = fmtSize(info.size || 0);
     $("viewer_meta").textContent = size;
     if (info.kind === "text") {
@@ -519,7 +630,7 @@ async function openExternal() {
   try {
     await api("/api/open", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({root: currentRoot, path: currentViewPath}),
+      body: JSON.stringify({root: ACTIVE_ROOT, path: currentViewPath}),
     });
   } catch (e) { $("viewer_meta").textContent = "打开失败：" + e.message; }
 }
@@ -737,9 +848,9 @@ async function createProject() {
   msg("proj_msg", "初始化中…", true);
   try {
     await api("/api/project", {method: "POST", body: fd});
-    currentRoot = root; localStorage.setItem("magent_root", root);
+    await markActive(root);
     msg("proj_msg", "已创建", true);
-    refreshRecent(); subscribe(); refresh(); refreshTree();
+    refreshRecent(); subscribe(); refresh(); refreshWorkspaces(true);
     $("proj_files").value = ""; $("proj_dir").value = ""; updateFileSummary();
   } catch (e) { msg("proj_msg", e.message, false); }
 }
@@ -748,36 +859,52 @@ async function loadProject() {
   if (!root) return msg("proj_msg", "请填写项目路径", false);
   try {
     await api("/api/state?root=" + encodeURIComponent(root));
-    currentRoot = root; localStorage.setItem("magent_root", root);
+    await markActive(root);
     msg("proj_msg", "已打开", true);
     api("/api/recent", {method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({root})}).then(refreshRecent).catch(() => {});
-    subscribe(); refresh(); refreshTree();
+    subscribe(); refresh(); refreshWorkspaces(true);
   } catch (e) { msg("proj_msg", e.message, false); }
 }
 
-function subscribe() {
-  if (es) es.close();
-  if (!currentRoot) return;
-  es = new EventSource("/api/stream?root=" + encodeURIComponent(currentRoot));
-  es.onmessage = (ev) => {
+async function subscribe() {
+  if (es) { es.close(); es = null; }
+  if (!ACTIVE_ROOT) return;
+  let cursor = null;
+  try {  // 回放该工作区已有日志（切换工作区时不丢上下文）
+    const past = await api("/api/events?root=" + encodeURIComponent(ACTIVE_ROOT) + "&after=0");
+    const items = (past.events || []).slice(-300);
+    if (items.length) {
+      clearLog();
+      for (const e of items) renderEvent(e);
+    }
+    cursor = past.cursor;
+  } catch (e) { /* 回放失败不影响实时流 */ }
+  const url = "/api/stream?root=" + encodeURIComponent(ACTIVE_ROOT) + (cursor !== null ? "&after=" + cursor : "");
+  es = new EventSource(url);
+  es.onmessage = (ev) => renderEvent(JSON.parse(ev.data));
+}
+
+function renderEvent(e) {
+  if (!e) return;
+  {
     const e = JSON.parse(ev.data);
     const t = `<span class="t">[${e.ts}]</span>`;
-    if (e.type === "stage") { logLine(`${t} ${e.msg}`); scheduleTreeRefresh(); }
+    if (e.type === "stage") { logLine(`${t} ${e.msg}`); scheduleWsRefresh(); }
     else if (e.type === "tool_call") logLine(`${t} <span class="dim">→ ${e.name}(${(e.args || "").slice(0, 140)})</span>`);
-    else if (e.type === "gate") { logLine(`${t} <span class="${e.ok ? "ok" : e.skipped ? "dim" : "bad"}">${e.skipped ? "— 跳过" : e.ok ? "✔ 通过" : "✘ 未过"} 门禁 ${e.name} (exit ${e.exit_code})</span>`); scheduleTreeRefresh(); }
-    else if (e.type === "file_written") { logLine(`${t} <span class="dim">写入 ${e.path}</span>`); scheduleTreeRefresh(); }
+    else if (e.type === "gate") { logLine(`${t} <span class="${e.ok ? "ok" : e.skipped ? "dim" : "bad"}">${e.skipped ? "— 跳过" : e.ok ? "✔ 通过" : "✘ 未过"} 门禁 ${e.name} (exit ${e.exit_code})</span>`); scheduleWsRefresh(); }
+    else if (e.type === "file_written") { logLine(`${t} <span class="dim">写入 ${e.path}</span>`); scheduleWsRefresh(); }
     else if (e.type === "assistant_text") logLine(`${t} <span class="dim">${e.text}</span>`);
     else if (e.type === "error") logLine(`${t} <span class="bad">✗ ${e.msg}</span>`);
-  };
+  }
 }
 
 const STATUS_TEXT = {pending:"待执行", in_progress:"进行中", complete:"已通过", failed:"驳回", n_a:"不适用", conditional:"有条件"};
 
 async function refresh() {
-  if (!currentRoot) return;
+  if (!ACTIVE_ROOT) return;
   let st;
-  try { st = await api("/api/state?root=" + encodeURIComponent(currentRoot)); }
+  try { st = await api("/api/state?root=" + encodeURIComponent(ACTIVE_ROOT)); }
   catch (e) { return; }
   $("proj_now").textContent = st.manifest_ok ? st.project_title : "";
 
@@ -811,7 +938,7 @@ async function fixStage(key) { await act(`/api/stage/fix`, key); }
 async function act(url, key) {
   try {
     await api(url, {method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({root: currentRoot, stage: key})});
+      body: JSON.stringify({root: ACTIVE_ROOT, stage: key})});
     refresh();
   } catch (e) { logLine(`<span class="bad">✗ ${e.message}</span>`); }
 }
@@ -820,7 +947,7 @@ async function markNA(key) {
   if (reason === null) return;
   try {
     await api("/api/stage/na", {method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({root: currentRoot, stage: key})});
+      body: JSON.stringify({root: ACTIVE_ROOT, stage: key})});
     refresh();
   } catch (e) { logLine(`<span class="bad">✗ ${e.message}</span>`); }
 }
@@ -833,10 +960,11 @@ async function boot() {
     $("proj_root").placeholder = META.default_projects_dir + "\\2026A";
   }
   await refreshKeyBanner();
-  if (currentRoot) { $("proj_root").value = currentRoot; subscribe(); refreshTree(); }
+  await refreshWorkspaces(true);
+  if (ACTIVE_ROOT) { $("proj_root").value = ACTIVE_ROOT; subscribe(); }
   refresh();
   timer = setInterval(refresh, 4000);
-  setInterval(() => { if (currentRoot) refreshTree(); }, 20000);  // 兜底：定期同步文件树
+  setInterval(() => refreshWorkspaces(), 15000);  // 工作区状态与运行指示
 }
 
 // 桌面窗口（pywebview）就绪后显示原生「浏览…」按钮；浏览器模式不支持

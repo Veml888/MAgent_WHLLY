@@ -253,6 +253,8 @@ async def create_project(
     except Exception as exc:
         raise HTTPException(500, f"项目初始化失败：{exc}")
     config_mod.add_recent_project(cfg, str(root_path))
+    others = [w for w in cfg.get("workspaces", []) if Path(w) != root_path]
+    cfg["workspaces"] = [str(root_path), *others][:12]
     config_mod.save(cfg)
     return _state_payload(root_path)
 
@@ -273,6 +275,59 @@ def mark_recent(body: RecentIn):
     config_mod.add_recent_project(cfg, str(root))
     config_mod.save(cfg)
     return {"ok": True, "recent_projects": cfg["recent_projects"]}
+
+
+# ---------- 工作区（可同时打开多个项目） ----------
+
+def _workspace_entry(root: Path) -> dict:
+    entry: dict = {
+        "root": str(root), "title": root.name, "exists": root.is_dir(),
+        "running": None, "stages": {},
+    }
+    runtime = RUNTIMES.get(str(root))
+    if runtime and runtime.running_stage:
+        entry["running"] = runtime.running_stage
+    if (root / "project-manifest.json").is_file():
+        try:
+            store = ManifestStore(root)
+            store.load()
+            entry["title"] = store.data.get("project", {}).get("title") or root.name
+            entry["stages"] = store.summary()["stages"]
+        except ManifestError:
+            pass
+    return entry
+
+
+@app.get("/api/workspaces")
+def list_workspaces():
+    cfg = config_mod.load()
+    return {"workspaces": [_workspace_entry(Path(raw)) for raw in cfg.get("workspaces", [])]}
+
+
+class WorkspaceIn(BaseModel):
+    root: str
+
+
+@app.post("/api/workspaces/add")
+def add_workspace(body: WorkspaceIn):
+    root = Path(body.root).expanduser().resolve()
+    if not (root / "project-manifest.json").is_file():
+        raise HTTPException(400, "该目录不是 MAgent 项目（缺少 project-manifest.json）")
+    cfg = config_mod.load()
+    others = [w for w in cfg.get("workspaces", []) if Path(w) != root]
+    cfg["workspaces"] = [str(root), *others][:12]
+    config_mod.add_recent_project(cfg, str(root))
+    config_mod.save(cfg)
+    return {"ok": True, "workspaces": cfg["workspaces"]}
+
+
+@app.post("/api/workspaces/remove")
+def remove_workspace(body: WorkspaceIn):
+    root = Path(body.root).expanduser().resolve()
+    cfg = config_mod.load()
+    cfg["workspaces"] = [w for w in cfg.get("workspaces", []) if Path(w) != root]
+    config_mod.save(cfg)
+    return {"ok": True}
 
 
 # ---------- 工作区文件浏览 ----------
@@ -392,11 +447,12 @@ def events(root: str, after: int = 0):
 
 
 @app.get("/api/stream")
-def stream(root: str):
+def stream(root: str, after: int | None = None):
+    """SSE 事件流；after 指定起始游标（用于切换工作区时回放已有日志）。"""
     runtime = _runtime(_get_root(root))
 
     def gen():
-        cursor = runtime.event_id
+        cursor = runtime.event_id if after is None else int(after)
         yield "retry: 3000\n\n"
         while True:
             for event in runtime.wait_events(cursor):
