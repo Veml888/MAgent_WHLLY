@@ -311,11 +311,6 @@
       <span class="spacer"></span>
       <button class="primary" onclick="initCurrentWorkspace()">初始化为项目</button>
     </div>
-    <div class="banner hidden" id="key_banner">
-      <span>尚未配置模型服务</span>
-      <span class="spacer"></span>
-      <button class="primary" onclick="openSettings()">去设置</button>
-    </div>
     <div class="panel">
       <div class="row" style="margin-top:0">
         <button onclick="document.getElementById('proj_files').click()">选择题面文件…</button>
@@ -787,17 +782,9 @@ async function saveSettings() {
       body: JSON.stringify({ providers, routing: collectRouting(), skills_root: $("skills_root").value.trim() }),
     });
     msg("settings_msg", "已保存", true);
-    refreshKeyBanner();
   } catch (e) { msg("settings_msg", e.message, false); }
 }
 
-async function refreshKeyBanner() {
-  try {
-    const cfg = await api("/api/config");
-    const ready = (cfg.providers || []).some(p => p.api_key);
-    $("key_banner").classList.toggle("hidden", ready);
-  } catch (e) { /* 配置读不到时不打扰 */ }
-}
 
 /* ============ 项目与工序（主界面） ============ */
 
@@ -996,7 +983,6 @@ async function boot() {
   try { META = await api("/api/meta"); } catch (e) {}
   $("ver").textContent = "MAgent v" + (META.version || "");
   wireFileInputs();
-  await refreshKeyBanner();
   await refreshWorkspaces(true);
   if (ACTIVE_ROOT) subscribe();
   refresh();
