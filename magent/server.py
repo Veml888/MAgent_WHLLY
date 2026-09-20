@@ -7,6 +7,7 @@ manifest 永远从磁盘即时读取（引擎是唯一写者，磁盘即真相�
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from collections import deque
@@ -272,6 +273,116 @@ def mark_recent(body: RecentIn):
     config_mod.add_recent_project(cfg, str(root))
     config_mod.save(cfg)
     return {"ok": True, "recent_projects": cfg["recent_projects"]}
+
+
+# ---------- 工作区文件浏览 ----------
+
+SKIP_NAMES = {".magent", "__pycache__", ".git", ".pytest_cache"}
+TEXT_EXTS = {
+    ".md", ".txt", ".json", ".csv", ".py", ".tex", ".bib", ".log",
+    ".yaml", ".yml", ".toml", ".ini", ".cfg", ".m", ".r", ".sql",
+}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+MAX_TREE_NODES = 600
+MAX_PREVIEW_BYTES = 400_000
+
+
+def _safe_child(base: Path, rel: str) -> Path:
+    """把前端传来的相对路径解析到 base 之内，越界一律拒绝。"""
+    if not rel or not str(rel).strip():
+        return base
+    target = (base / str(rel).replace("\\", "/")).resolve()
+    try:
+        target.relative_to(base)
+    except ValueError as exc:
+        raise HTTPException(400, "路径越界") from exc
+    return target
+
+
+def _walk_tree(base: Path, current: Path, depth: int, budget: list[int]) -> list[dict]:
+    if depth > 4 or budget[0] <= 0:
+        return []
+    items: list[dict] = []
+    try:
+        entries = sorted(current.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+    except OSError:
+        return []
+    for path in entries:
+        if budget[0] <= 0:
+            break
+        if path.name in SKIP_NAMES or path.name.startswith("."):
+            continue
+        budget[0] -= 1
+        rel = path.relative_to(base).as_posix()
+        if path.is_dir():
+            items.append({
+                "name": path.name, "path": rel, "type": "dir",
+                "children": _walk_tree(base, path, depth + 1, budget),
+            })
+        elif path.is_file():
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = 0
+            items.append({"name": path.name, "path": rel, "type": "file", "size": size})
+    return items
+
+
+@app.get("/api/files")
+def list_files(root: str):
+    """侧边栏工作区文件树。"""
+    base = _get_root(root)
+    tree = _walk_tree(base, base, 0, [MAX_TREE_NODES])
+    return {"root": str(base), "tree": tree}
+
+
+@app.get("/api/file")
+def file_info(root: str, path: str):
+    """文件预览信息：文本直接返回内容，图片/PDF 返回标记（前端走 /api/raw）。"""
+    base = _get_root(root)
+    target = _safe_child(base, path)
+    if not target.is_file():
+        raise HTTPException(404, f"文件不存在：{path}")
+    ext = target.suffix.lower()
+    size = target.stat().st_size
+    if ext in IMAGE_EXTS:
+        return {"kind": "image", "size": size, "ext": ext}
+    if ext == ".pdf":
+        return {"kind": "pdf", "size": size, "ext": ext}
+    if ext in TEXT_EXTS or size <= 200_000:
+        text = target.read_text(encoding="utf-8", errors="replace")
+        if len(text) > MAX_PREVIEW_BYTES:
+            text = text[:MAX_PREVIEW_BYTES] + "\n…（内容过长，已截断，可用系统程序打开查看全文）"
+        return {"kind": "text", "content": text, "size": size, "ext": ext}
+    return {"kind": "binary", "size": size, "ext": ext}
+
+
+@app.get("/api/raw")
+def raw_file(root: str, path: str):
+    """原样返回文件（图片 / PDF 预览用）。"""
+    base = _get_root(root)
+    target = _safe_child(base, path)
+    if not target.is_file():
+        raise HTTPException(404, f"文件不存在：{path}")
+    return FileResponse(target)
+
+
+class OpenIn(BaseModel):
+    root: str
+    path: str
+
+
+@app.post("/api/open")
+def open_external(body: OpenIn):
+    """用系统默认程序打开文件（PDF 用阅读器、图片用看图器等）。"""
+    base = _get_root(body.root)
+    target = _safe_child(base, body.path)
+    if not target.is_file():
+        raise HTTPException(404, f"文件不存在：{body.path}")
+    if not hasattr(os, "startfile"):
+        raise HTTPException(400, "当前系统不支持直接打开文件")
+    os.startfile(str(target))  # noqa: S606 - 本地软件，仅打开项目内文件
+    return {"ok": True}
 
 
 @app.get("/api/events")

@@ -97,3 +97,32 @@ def test_init_project_extracts_zip_and_lists_recursively(tmp_path):
 def test_data_dir_still_write_denied(box):
     with pytest.raises(ToolError):
         box.write_file("data/偷偷改.csv", "x")
+
+
+def test_folder_upload_preserves_structure(tmp_path):
+    """整文件夹上传（webkitRelativePath 形如 附件/子目录/文件）保留原层级。"""
+    from magent.engine import init_project
+    skills = Path("magent/skills").resolve()
+    root = tmp_path / "题目B"
+    init_project(
+        root=root,
+        title="文件夹上传",
+        prefs={},
+        problem_files=[
+            ("B题.pdf", b"%PDF-1.4 fake"),
+            ("附件/数据1.xlsx", b"x"),
+            ("附件/子目录/说明.txt", "内容".encode()),
+        ],
+        skills_root=skills,
+    )
+    assert (root / "data" / "附件" / "数据1.xlsx").is_file()
+    assert (root / "data" / "附件" / "子目录" / "说明.txt").is_file()
+    listed = _list_problem_files(root)
+    assert "附件/数据1.xlsx" in listed and "附件/子目录/说明.txt" in listed
+
+
+def test_upload_path_traversal_stripped(tmp_path):
+    from magent.engine import _safe_upload_path
+    assert _safe_upload_path("../../evil.txt", "x.bin").as_posix() == "evil.txt"
+    assert _safe_upload_path("C:/Windows/system32/x.dll", "x.bin").as_posix() == "Windows/system32/x.dll"
+    assert _safe_upload_path("", "回退.bin").as_posix() == "回退.bin"

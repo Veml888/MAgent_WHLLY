@@ -85,9 +85,16 @@
 
 ## 目录约定
 
-- 项目（PROJECT_ROOT）内：`data/`（只读题面）、`docs/`、`code/`、`results/`、
+- 项目（PROJECT_ROOT）内：`data/`（只读题面与数据附件）、`docs/`、`code/`、`results/`、
   `figures/`、`paper/`、`project-manifest.json`（引擎独占写）。
 - `.magent/`：引擎内部目录（prefs、sessions 转录、events 日志），模型禁写。
+- 左侧「工作区」文件树实时显示项目文件，点击可预览（文本/图片/PDF），也可用系统程序打开。
+
+## 题面与数据上传
+
+- 单文件多选：题面 PDF/DOCX/MD/TXT + 数据附件（Excel/CSV/zip/图片）一次选中
+- **整文件夹**：点「选择数据文件夹…」上传整个附件文件夹，按原目录结构存入 `data/`
+- zip 自动解压进 `data/`；`data/` 对模型只读
 
 ## 分发形态
 

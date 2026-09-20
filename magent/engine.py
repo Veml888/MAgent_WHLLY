@@ -46,6 +46,21 @@ def _run_skeleton_script(script: Path, args: list[str], root: Path) -> None:
         raise RuntimeError(f"{script.name} 失败（exit {proc.returncode}）：{(proc.stderr or proc.stdout)[-800:]}")
 
 
+def _safe_upload_path(raw_name: str, fallback: str) -> Path:
+    """把上传文件名规范化为 data/ 下的安全相对路径（保留文件夹层级，去越界分量）。"""
+    import re
+
+    drive_re = re.compile(r"^[A-Za-z]:[\\/]?$")  # Windows 盘符分量（"C:" 或 "C:/"）
+    rel = Path(str(raw_name).replace("\\", "/"))
+    parts = [
+        p for p in rel.parts
+        if p not in ("", ".", "..", "/") and not drive_re.match(p)
+    ]
+    if not parts:
+        parts = [fallback]
+    return Path(*parts[-8:])  # 最多保留 8 层，防异常深路径
+
+
 def _extract_zip(content: bytes, dest: Path) -> list[str]:
     """把上传的 zip 解压进 data/（跳过目录项与越界路径）。返回写入的相对路径。"""
     import io
@@ -85,16 +100,19 @@ def init_project(
     saved_names: list[str] = []
     extracted: list[str] = []
     for original_name, content in problem_files:
-        safe_name = Path(original_name).name or f"题目{len(saved_names) + 1}.bin"
-        if safe_name.lower().endswith(".zip"):
+        rel = _safe_upload_path(original_name, fallback=f"文件{len(saved_names) + 1}.bin")
+        if rel.name.lower().endswith(".zip"):
             names = _extract_zip(content, data_dir)
             if names:
                 extracted.extend(names)
                 continue  # 解压成功则不再保留压缩包本体
-        (data_dir / safe_name).write_bytes(content)
-        saved_names.append(safe_name)
+        target = data_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        saved_names.append(rel.as_posix())
     if saved_names:
-        log({"type": "stage", "msg": f"文件已写入 data/：{saved_names}"})
+        preview = saved_names[:6] + ([f"…共 {len(saved_names)} 个"] if len(saved_names) > 6 else [])
+        log({"type": "stage", "msg": f"文件已写入 data/：{preview}"})
     if extracted:
         log({"type": "stage", "msg": f"压缩包已解压到 data/（{len(extracted)} 个文件）：{extracted[:8]}"})
 

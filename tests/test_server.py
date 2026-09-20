@@ -83,3 +83,48 @@ def test_config_save_preserves_masked_key(client, tmp_path):
     # 回传掩码值
     client.post("/api/config", json={"providers": masked["providers"], "routing": masked["routing"]})
     assert config_mod.load()["providers"][0]["api_key"] == "sk-real-9999"
+
+
+def test_folder_upload_via_multipart_keeps_structure(client, tmp_path):
+    """整文件夹上传：文件名带相对路径（附件/数据.csv）时按原结构落盘。"""
+    root = tmp_path / "proj-folder"
+    resp = client.post(
+        "/api/project",
+        data={"root": str(root), "title": "文件夹上传"},
+        files=[
+            ("files", ("B题.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")),
+            ("files", ("附件/数据.csv", io.BytesIO("a,b\n1,2\n".encode()), "text/csv")),
+            ("files", ("附件/子目录/readme.txt", io.BytesIO(b"hi"), "text/plain")),
+        ],
+    )
+    assert resp.status_code == 200, resp.text
+    assert (root / "data" / "附件" / "数据.csv").is_file()
+    assert (root / "data" / "附件" / "子目录" / "readme.txt").is_file()
+    assert (root / "data" / "B题.pdf").is_file()
+
+
+def test_workspace_file_tree_and_preview(client, tmp_path):
+    """侧边栏文件树：列出项目文件（跳过 .magent），文本可预览，越界被拒。"""
+    root = tmp_path / "proj-tree"
+    client.post("/api/project", data={"root": str(root), "title": "T"})
+    (root / "docs").mkdir(exist_ok=True)
+    (root / "docs" / "01-analysis-report.md").write_text("# 分析报告\n内容", encoding="utf-8")
+    (root / "results").mkdir(exist_ok=True)
+    (root / "results" / "data.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+
+    tree = client.get("/api/files", params={"root": str(root)}).json()["tree"]
+    names = {n["name"] for n in tree}
+    assert "docs" in names and "data" in names
+    assert ".magent" not in names  # 引擎内部目录不暴露
+    docs = next(n for n in tree if n["name"] == "docs")
+    assert docs["children"][0]["path"] == "docs/01-analysis-report.md"
+
+    info = client.get("/api/file", params={"root": str(root), "path": "docs/01-analysis-report.md"}).json()
+    assert info["kind"] == "text" and "分析报告" in info["content"]
+
+    raw = client.get("/api/raw", params={"root": str(root), "path": "results/data.csv"})
+    assert raw.status_code == 200 and "a,b" in raw.text
+
+    # 越界访问被拒
+    assert client.get("/api/file", params={"root": str(root), "path": "../outside.txt"}).status_code == 400
+    assert client.get("/api/file", params={"root": str(root), "path": "nope.txt"}).status_code == 404

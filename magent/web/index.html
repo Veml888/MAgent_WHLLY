@@ -56,7 +56,49 @@
   .nav button {
     width: 100%; text-align: left; padding: 10px 14px; font-size: 14.5px;
   }
+  /* ---- 工作区文件树 ---- */
+  .ws { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+  .ws-head {
+    display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--soft);
+    letter-spacing: 1px; padding-bottom: 5px; border-bottom: 1px solid var(--line);
+  }
+  .ws-head button.mini {
+    padding: 1px 8px; font-size: 13px; line-height: 1.4; border-radius: 6px;
+  }
+  .tree { overflow-y: auto; flex: 1; min-height: 80px; font-size: 13px; }
+  .tree .empty-tip { color: var(--soft); font-size: 12.5px; padding: 8px 2px; }
+  .node {
+    display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px;
+    cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--ink); border: none; background: none; width: 100%; text-align: left;
+    font-family: var(--sans); font-size: 13px;
+  }
+  .node:hover { background: rgba(255,255,255,.06); }
+  .node .ic { color: var(--acc); font-family: var(--mono); font-size: 11px; flex: none; }
+  .node.dir .ic { color: var(--hold); }
+  .node .nm { overflow: hidden; text-overflow: ellipsis; }
+  .node .sz { margin-left: auto; color: var(--soft); font-family: var(--mono); font-size: 10.5px; flex: none; }
+  .tree .children { margin-left: 10px; border-left: 1px dashed rgba(255,255,255,.07); padding-left: 4px; }
   .railfoot { margin-top: auto; font-size: 12.5px; color: var(--soft); font-family: var(--mono); }
+
+  /* ---- 文件预览视图 ---- */
+  #viewer {
+    position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column;
+    background: var(--bg0);
+  }
+  #viewer .vhead {
+    display: flex; align-items: center; gap: 14px; padding: 16px 30px;
+    border-bottom: 1px solid var(--line); background: rgba(12,15,20,.95);
+  }
+  #viewer .vhead h2 { margin: 0; font-size: 16.5px; font-family: var(--mono); letter-spacing: .5px; }
+  #viewer .vbody { flex: 1; overflow: auto; padding: 22px 30px; }
+  #viewer pre {
+    margin: 0; font-family: var(--mono); font-size: 13.5px; line-height: 1.75;
+    white-space: pre-wrap; word-break: break-word; color: var(--ink);
+  }
+  #viewer img { max-width: 100%; border-radius: 8px; border: 1px solid var(--line); }
+  #viewer iframe { width: 100%; height: 100%; border: none; border-radius: 8px; background: #fff; }
+  #viewer .center { text-align: center; color: var(--soft); padding-top: 40px; }
 
   /* ============ 通用控件 ============ */
   input, select {
@@ -216,6 +258,16 @@
   <div class="nav">
     <button onclick="openSettings()">⚙&nbsp;&nbsp;设置</button>
   </div>
+
+  <div class="ws">
+    <div class="ws-head">
+      <span>工作区</span>
+      <span class="spacer"></span>
+      <button class="mini" onclick="refreshTree()" title="刷新">↻</button>
+    </div>
+    <div id="filetree" class="tree"><div class="empty-tip">尚未打开项目</div></div>
+  </div>
+
   <div class="railfoot">
     <div id="ver"></div>
   </div>
@@ -252,7 +304,12 @@
           </select></div>
       </div>
       <div class="row">
-        <span class="inline-file">题面与数据附件：<input id="proj_files" type="file" multiple accept=".pdf,.docx,.doc,.md,.txt,.csv,.xlsx,.xls,.zip,.png,.jpg,.jpeg"></span>
+        <span class="inline-file">题面文件：<input id="proj_files" type="file" multiple accept=".pdf,.docx,.doc,.md,.txt,.csv,.xlsx,.xls,.zip,.png,.jpg,.jpeg" onchange="updateFileSummary()"></span>
+        <span class="inline-file">
+          <button onclick="document.getElementById('proj_dir').click()">选择数据文件夹…</button>
+          <input id="proj_dir" type="file" webkitdirectory multiple class="hidden" onchange="updateFileSummary()">
+        </span>
+        <span class="hint" id="file_summary"></span>
         <button class="primary" onclick="createProject()">创建项目</button>
         <button onclick="loadProject()">打开已有项目</button>
         <span id="recent_wrap" class="hidden">
@@ -330,6 +387,18 @@
   </div>
 </div>
 
+<!-- ============ 文件预览视图 ============ -->
+<div id="viewer" class="hidden">
+  <div class="vhead">
+    <button onclick="closeViewer()">← 返回</button>
+    <h2 id="viewer_name"></h2>
+    <span class="spacer"></span>
+    <span class="hint" id="viewer_meta"></span>
+    <button onclick="openExternal()">用系统程序打开</button>
+  </div>
+  <div class="vbody" id="viewer_body"></div>
+</div>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -358,6 +427,106 @@ async function api(path, opts) {
   }
   return resp.json();
 }
+
+/* ============ 工作区文件树 ============ */
+let TREE = [];
+let EXPANDED = new Set();
+let currentViewPath = "";
+let treeTimer = null;
+
+const fmtSize = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} K` : `${(n / 1048576).toFixed(1)} M`;
+
+async function refreshTree() {
+  if (!currentRoot) {
+    $("filetree").innerHTML = '<div class="empty-tip">尚未打开项目</div>';
+    return;
+  }
+  try {
+    const data = await api("/api/files?root=" + encodeURIComponent(currentRoot));
+    TREE = data.tree || [];
+    renderTree();
+  } catch (e) { /* 静默：文件树失败不打断主流程 */ }
+}
+
+function renderTree() {
+  const box = $("filetree");
+  if (!TREE.length) { box.innerHTML = '<div class="empty-tip">项目目录为空</div>'; return; }
+  box.innerHTML = renderNodes(TREE, 0);
+}
+
+function renderNodes(nodes, depth) {
+  return nodes.map(n => {
+    if (n.type === "dir") {
+      const open = EXPANDED.has(n.path);
+      return `<div>
+        <button class="node dir" onclick="toggleDir('${esc(n.path)}')" title="${esc(n.path)}">
+          <span class="ic">${open ? "▾" : "▸"}</span><span class="nm">${esc(n.name)}</span>
+        </button>
+        ${open ? `<div class="children">${renderNodes(n.children || [], depth + 1)}</div>` : ""}
+      </div>`;
+    }
+    return `<button class="node" onclick="openViewer('${esc(n.path)}')" title="${esc(n.path)}">
+      <span class="ic">·</span><span class="nm">${esc(n.name)}</span><span class="sz">${fmtSize(n.size || 0)}</span>
+    </button>`;
+  }).join("");
+}
+
+function toggleDir(path) {
+  if (EXPANDED.has(path)) EXPANDED.delete(path); else EXPANDED.add(path);
+  renderTree();
+}
+
+function scheduleTreeRefresh() {
+  if (treeTimer) clearTimeout(treeTimer);
+  treeTimer = setTimeout(refreshTree, 1500);
+}
+
+/* ============ 文件预览 ============ */
+async function openViewer(path) {
+  currentViewPath = path;
+  $("viewer_name").textContent = path;
+  $("viewer_meta").textContent = "加载中…";
+  $("viewer_body").innerHTML = "";
+  $("viewer").classList.remove("hidden");
+  try {
+    const info = await api(`/api/file?root=${encodeURIComponent(currentRoot)}&path=${encodeURIComponent(path)}`);
+    const raw = `/api/raw?root=${encodeURIComponent(currentRoot)}&path=${encodeURIComponent(path)}`;
+    const size = fmtSize(info.size || 0);
+    $("viewer_meta").textContent = size;
+    if (info.kind === "text") {
+      $("viewer_body").innerHTML = `<pre>${esc(info.content)}</pre>`;
+    } else if (info.kind === "image") {
+      $("viewer_body").innerHTML = `<div class="center"><img src="${raw}" alt=""></div>`;
+    } else if (info.kind === "pdf") {
+      $("viewer_body").innerHTML = `<iframe src="${raw}"></iframe>`;
+    } else {
+      $("viewer_body").innerHTML =
+        `<div class="center">该文件类型无法在软件内预览（${esc(info.ext || "未知格式")}，${size}）<br>请点右上角「用系统程序打开」。</div>`;
+    }
+  } catch (e) {
+    $("viewer_body").innerHTML = `<div class="center">打开失败：${esc(e.message)}</div>`;
+  }
+}
+
+function closeViewer() {
+  $("viewer").classList.add("hidden");
+  $("viewer_body").innerHTML = "";
+  currentViewPath = "";
+}
+
+async function openExternal() {
+  if (!currentViewPath) return;
+  try {
+    await api("/api/open", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({root: currentRoot, path: currentViewPath}),
+    });
+  } catch (e) { $("viewer_meta").textContent = "打开失败：" + e.message; }
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { closeViewer(); closeSettings(); }
+});
 
 /* ============ 设置视图：模型服务 ============ */
 
@@ -547,6 +716,13 @@ async function refreshRecent() {
   } catch (e) { /* 忽略 */ }
 }
 
+function updateFileSummary() {
+  const n1 = $("proj_files").files.length;
+  const n2 = $("proj_dir").files.length;
+  const total = n1 + n2;
+  $("file_summary").textContent = total ? `已选 ${total} 个文件` + (n2 ? "（含文件夹）" : "") : "";
+}
+
 async function createProject() {
   const root = $("proj_root").value.trim();
   if (!root) return msg("proj_msg", "请填写项目路径", false);
@@ -555,13 +731,16 @@ async function createProject() {
   fd.append("title", $("proj_title").value.trim() || "未命名题目");
   fd.append("focus", $("proj_focus").value);
   fd.append("subproblems", $("proj_sub").value);
-  for (const f of $("proj_files").files) fd.append("files", f);
+  // 单文件 + 整文件夹：文件夹内文件带相对路径提交，服务端按原结构存入 data/
+  for (const f of $("proj_files").files) fd.append("files", f, f.name);
+  for (const f of $("proj_dir").files) fd.append("files", f, f.webkitRelativePath || f.name);
   msg("proj_msg", "初始化中…", true);
   try {
     await api("/api/project", {method: "POST", body: fd});
     currentRoot = root; localStorage.setItem("magent_root", root);
     msg("proj_msg", "已创建", true);
-    refreshRecent(); subscribe(); refresh();
+    refreshRecent(); subscribe(); refresh(); refreshTree();
+    $("proj_files").value = ""; $("proj_dir").value = ""; updateFileSummary();
   } catch (e) { msg("proj_msg", e.message, false); }
 }
 async function loadProject() {
@@ -573,7 +752,7 @@ async function loadProject() {
     msg("proj_msg", "已打开", true);
     api("/api/recent", {method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({root})}).then(refreshRecent).catch(() => {});
-    subscribe(); refresh();
+    subscribe(); refresh(); refreshTree();
   } catch (e) { msg("proj_msg", e.message, false); }
 }
 
@@ -584,9 +763,10 @@ function subscribe() {
   es.onmessage = (ev) => {
     const e = JSON.parse(ev.data);
     const t = `<span class="t">[${e.ts}]</span>`;
-    if (e.type === "stage") logLine(`${t} ${e.msg}`);
+    if (e.type === "stage") { logLine(`${t} ${e.msg}`); scheduleTreeRefresh(); }
     else if (e.type === "tool_call") logLine(`${t} <span class="dim">→ ${e.name}(${(e.args || "").slice(0, 140)})</span>`);
-    else if (e.type === "gate") logLine(`${t} <span class="${e.ok ? "ok" : e.skipped ? "dim" : "bad"}">${e.skipped ? "— 跳过" : e.ok ? "✔ 通过" : "✘ 未过"} 门禁 ${e.name} (exit ${e.exit_code})</span>`);
+    else if (e.type === "gate") { logLine(`${t} <span class="${e.ok ? "ok" : e.skipped ? "dim" : "bad"}">${e.skipped ? "— 跳过" : e.ok ? "✔ 通过" : "✘ 未过"} 门禁 ${e.name} (exit ${e.exit_code})</span>`); scheduleTreeRefresh(); }
+    else if (e.type === "file_written") { logLine(`${t} <span class="dim">写入 ${e.path}</span>`); scheduleTreeRefresh(); }
     else if (e.type === "assistant_text") logLine(`${t} <span class="dim">${e.text}</span>`);
     else if (e.type === "error") logLine(`${t} <span class="bad">✗ ${e.msg}</span>`);
   };
@@ -653,9 +833,10 @@ async function boot() {
     $("proj_root").placeholder = META.default_projects_dir + "\\2026A";
   }
   await refreshKeyBanner();
-  if (currentRoot) { $("proj_root").value = currentRoot; subscribe(); }
+  if (currentRoot) { $("proj_root").value = currentRoot; subscribe(); refreshTree(); }
   refresh();
   timer = setInterval(refresh, 4000);
+  setInterval(() => { if (currentRoot) refreshTree(); }, 20000);  // 兜底：定期同步文件树
 }
 
 // 桌面窗口（pywebview）就绪后显示原生「浏览…」按钮；浏览器模式不支持
