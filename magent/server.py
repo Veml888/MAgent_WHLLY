@@ -34,6 +34,8 @@ class Runtime:
         self.event_id = 0
         self.cond = threading.Condition()
         self.running_stage: str | None = None
+        self.running_pipeline = False   # 全流程（自动按序跑）是否在运行
+        self.pipeline_stop = False      # 请求：当前阶段跑完后停止
 
     def log(self, event: dict) -> None:
         with self.cond:
@@ -91,6 +93,7 @@ def _state_payload(root: Path) -> dict:
     payload["artifacts_count"] = len(store.data.get("artifacts", []))
     statuses = store.summary()["stages"]
     runtime = _runtime(root)
+    payload["pipeline_running"] = runtime.running_pipeline
     stage_list = []
     for key in pipeline.ORDER:
         stage = pipeline.STAGES[key]
@@ -511,6 +514,115 @@ def fix_stage(body: StageIn):
     if body.stage not in pipeline.STAGES:
         raise HTTPException(400, f"未知阶段：{body.stage}")
     _spawn_stage(root, body.stage)  # run_stage 对 in_progress 阶段自动进入续跑模式
+    return {"ok": True}
+
+
+# ---------- 全流程（两种模式） ----------
+
+class PipelineIn(BaseModel):
+    root: str
+    mode: str = "auto"   # auto=一口气跑完；step=每跑完一个阶段停下等确认
+
+
+def _pipeline_precheck(root: Path, runtime: Runtime, cfg: dict) -> str:
+    """校验并返回本次要跑的阶段 key。"""
+    if runtime.running_pipeline:
+        raise HTTPException(409, "全流程已在运行中")
+    if runtime.running_stage is not None:
+        raise HTTPException(409, f"阶段 {runtime.running_stage} 正在运行，请稍候")
+    store = ManifestStore(root)
+    try:
+        store.load()
+    except ManifestError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    stage_key = pipeline.next_stage(store.summary()["stages"])
+    if stage_key is None:
+        raise HTTPException(400, "没有待执行的阶段（全部已完成或不适用）")
+    try:
+        provider = config_mod.provider_for_stage(cfg, stage_key)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not provider.get("api_key"):
+        title = pipeline.STAGES[stage_key].title
+        raise HTTPException(
+            400, f"阶段「{title}」使用的模型服务「{provider.get('name')}」尚未配置 API Key，请到设置页填写"
+        )
+    return stage_key
+
+
+def _spawn_pipeline(root: Path, mode: str) -> None:
+    runtime = _runtime(root)
+    cfg = config_mod.load()
+    _pipeline_precheck(root, runtime, cfg)  # 先做校验（HTTP 错误在请求阶段返回）
+
+    def worker():
+        runtime.running_pipeline = True
+        runtime.pipeline_stop = False
+        label = "全自动" if mode == "auto" else "逐步"
+        runtime.log({"type": "stage", "msg": f"▶ 全流程开始（{label}模式）"})
+        try:
+            while True:
+                store = ManifestStore(root)
+                store.load()
+                stage_key = pipeline.next_stage(store.summary()["stages"])
+                if stage_key is None:
+                    runtime.log({"type": "stage", "msg": "🎉 全流程结束：所有阶段已完成或不适用"})
+                    break
+                stage = pipeline.STAGES[stage_key]
+                runtime.running_stage = stage_key
+                runtime.log({"type": "stage", "msg": f"▶ 阶段：{stage.title}"})
+                result = engine.run_stage(root, stage_key, cfg, log=runtime.log)
+                runtime.running_stage = None
+                if result.outcome not in ("complete", "already_complete"):
+                    runtime.log({
+                        "type": "stage",
+                        "msg": f"⏸ 全流程暂停于「{stage.title}」（{result.outcome}）：{result.detail or '需人工处理'}"
+                               "——处理后点「继续」",
+                    })
+                    break
+                if mode == "step":
+                    nxt_store = ManifestStore(root)
+                    nxt_store.load()
+                    nxt = pipeline.next_stage(nxt_store.summary()["stages"])
+                    if nxt is None:
+                        runtime.log({"type": "stage", "msg": "🎉 全流程结束：所有阶段已完成或不适用"})
+                    else:
+                        runtime.log({
+                            "type": "stage",
+                            "msg": f"⏸ 逐步模式：「{stage.title}」已完成，下一步是「{pipeline.STAGES[nxt].title}」"
+                                   "——确认后点「继续」",
+                        })
+                    break
+                if runtime.pipeline_stop:
+                    runtime.log({"type": "stage", "msg": "■ 已按请求停止（当前阶段已完成）"})
+                    break
+        except Exception as exc:  # 兜底，避免线程静默死掉
+            runtime.log({"type": "error", "msg": f"全流程异常：{exc}"})
+        finally:
+            runtime.running_stage = None
+            runtime.running_pipeline = False
+            runtime.log({"type": "stage", "msg": "■ 全流程运行结束"})
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+@app.post("/api/pipeline/start")
+def start_pipeline(body: PipelineIn):
+    root = _get_root(body.root)
+    if body.mode not in ("auto", "step"):
+        raise HTTPException(400, f"未知模式：{body.mode}")
+    _spawn_pipeline(root, body.mode)
+    return {"ok": True, "mode": body.mode}
+
+
+@app.post("/api/pipeline/stop")
+def stop_pipeline(body: WorkspaceIn):
+    root = _get_root(body.root)
+    runtime = _runtime(root)
+    if not runtime.running_pipeline:
+        raise HTTPException(400, "当前没有在运行的全流程")
+    runtime.pipeline_stop = True
+    runtime.log({"type": "stage", "msg": "⏸ 已请求停止：当前阶段跑完后停下"})
     return {"ok": True}
 
 

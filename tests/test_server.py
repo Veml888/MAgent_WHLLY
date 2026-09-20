@@ -173,3 +173,102 @@ def test_stage_locks_are_per_workspace(client, tmp_path, monkeypatch):
     monkeypatch.setattr(srv.engine, "run_stage", lambda *a_, **k_: None)
     assert client.post("/api/stage/start", json={"root": str(a), "stage": "analysis"}).status_code == 200
     assert client.post("/api/stage/start", json={"root": str(b), "stage": "analysis"}).status_code == 200
+
+
+def _ready_project(client, tmp_path, name="P"):
+    """建一个项目并把模型服务配好（跑流程前需要）。"""
+    root = tmp_path / name
+    client.post("/api/project", data={"root": str(root), "title": name})
+    cfg = config_mod.load()
+    cfg["providers"] = [{"id": "p", "name": "P", "base_url": "http://x", "api_key": "k", "model": "m"}]
+    cfg["routing"] = {"default": "p"}
+    config_mod.save(cfg)
+    return root
+
+
+def _stub_engine(monkeypatch, calls, mark_complete=True):
+    """把 engine.run_stage 换成打桩：记录调用并按需把阶段置为 complete。"""
+    import magent.server as srv
+    from magent.engine import StageResult
+    from magent.manifest import ManifestStore
+
+    def fake_run(root, stage_key, cfg_, log=None, llm=None):
+        calls.append(stage_key)
+        if mark_complete:
+            store = ManifestStore(root)
+            store.load()
+            store.set_status(stage_key, "in_progress")
+            store.set_status(stage_key, "complete")
+            store.save()
+        if log:
+            log({"type": "stage", "msg": f"[stub] {stage_key}"})
+        return StageResult(stage_key, "complete", "stub")
+
+    monkeypatch.setattr(srv.engine, "run_stage", fake_run)
+
+
+def _wait_pipeline(srv_root, timeout=5.0):
+    import time as _t
+
+    import magent.server as srv
+    end = _t.monotonic() + timeout
+    while _t.monotonic() < end:
+        rt = srv.RUNTIMES.get(str(srv_root))
+        if rt and not rt.running_pipeline and rt.running_stage is None:
+            return True
+        _t.sleep(0.05)
+    return False
+
+
+def test_pipeline_step_mode_runs_exactly_one_stage(client, tmp_path, monkeypatch):
+    root = _ready_project(client, tmp_path, "step")
+    calls = []
+    _stub_engine(monkeypatch, calls)
+
+    assert client.post("/api/pipeline/start", json={"root": str(root), "mode": "step"}).status_code == 200
+    assert _wait_pipeline(root)
+    assert calls == ["analysis"], f"逐步模式应只跑一个阶段，实际 {calls}"
+    # 日志里给出下一步提示
+    events = client.get("/api/events", params={"root": str(root), "after": 0}).json()["events"]
+    assert any("逐步模式" in (e.get("msg") or "") for e in events)
+
+
+def test_pipeline_auto_mode_runs_until_done(client, tmp_path, monkeypatch):
+    root = _ready_project(client, tmp_path, "auto")
+    calls = []
+    _stub_engine(monkeypatch, calls)
+
+    assert client.post("/api/pipeline/start", json={"root": str(root), "mode": "auto"}).status_code == 200
+    assert _wait_pipeline(root)
+    assert calls == ["analysis", "modeling", "coding", "paper_plan", "figures", "graphics", "paper_final", "verification"]
+    events = client.get("/api/events", params={"root": str(root), "after": 0}).json()["events"]
+    assert any("全流程结束" in (e.get("msg") or "") for e in events)
+
+
+def test_pipeline_stops_on_failure(client, tmp_path, monkeypatch):
+    root = _ready_project(client, tmp_path, "fail")
+    calls = []
+    import magent.server as srv
+    from magent.engine import StageResult
+
+    def failing_run(root_, stage_key, cfg_, log=None, llm=None):
+        calls.append(stage_key)
+        return StageResult(stage_key, "paused", "需要人工处理")
+
+    monkeypatch.setattr(srv.engine, "run_stage", failing_run)
+    client.post("/api/pipeline/start", json={"root": str(root), "mode": "auto"})
+    assert _wait_pipeline(root)
+    assert calls == ["analysis"]  # 首个阶段失败后停下，不继续
+    events = client.get("/api/events", params={"root": str(root), "after": 0}).json()["events"]
+    assert any("全流程暂停" in (e.get("msg") or "") for e in events)
+
+
+def test_pipeline_requires_model_key(client, tmp_path):
+    root = tmp_path / "nokey"
+    client.post("/api/project", data={"root": str(root), "title": "无Key"})
+    cfg = config_mod.load()
+    cfg["providers"] = [{"id": "p", "name": "P", "base_url": "http://x", "api_key": "", "model": "m"}]
+    cfg["routing"] = {"default": "p"}
+    config_mod.save(cfg)
+    resp = client.post("/api/pipeline/start", json={"root": str(root), "mode": "auto"})
+    assert resp.status_code == 400 and "API Key" in resp.json()["detail"]

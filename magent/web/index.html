@@ -345,6 +345,11 @@
   <section>
     <div class="sec-head">
       <span class="no">02</span><h2>工序</h2>
+      <span class="hint" id="pipe_hint"></span>
+      <span class="spacer"></span>
+      <button id="pipe_auto_btn" class="primary" onclick="startPipeline('auto')">▶&nbsp;全自动运行</button>
+      <button id="pipe_step_btn" onclick="startPipeline('step')">▶&nbsp;逐步运行</button>
+      <button id="pipe_stop_btn" class="danger hidden" onclick="stopPipeline()">⏸&nbsp;停止</button>
     </div>
     <div class="process">
       <div class="rail-line"></div>
@@ -903,6 +908,18 @@ async function refresh() {
   catch (e) { return; }
   $("proj_now").textContent = st.manifest_ok ? st.project_title : "";
 
+  // 全流程运行状态：运行中显示停止、隐藏启动；否则按钮文案随进度变化
+  const running = !!st.pipeline_running;
+  const doneCount = (st.stages || []).filter(s => ["complete", "n_a"].includes(s.status)).length;
+  const label = doneCount === 0 ? "▶&nbsp;全自动运行" : "▶&nbsp;继续（全自动）";
+  const stepLabel = doneCount === 0 ? "▶&nbsp;逐步运行" : "▶&nbsp;继续（逐步）";
+  $("pipe_auto_btn").innerHTML = label;
+  $("pipe_step_btn").innerHTML = stepLabel;
+  $("pipe_auto_btn").classList.toggle("hidden", running);
+  $("pipe_step_btn").classList.toggle("hidden", running);
+  $("pipe_stop_btn").classList.toggle("hidden", !running);
+  $("pipe_hint").textContent = running ? "全流程运行中…" : (doneCount ? `已完成 ${doneCount}/8` : "");
+
   const box = $("stages"); box.innerHTML = "";
   for (const s of st.stages) {
     const div = document.createElement("div");
@@ -930,6 +947,21 @@ async function refresh() {
 
 async function startStage(key) { await act(`/api/stage/start`, key); }
 async function fixStage(key) { await act(`/api/stage/fix`, key); }
+
+async function startPipeline(mode) {
+  try {
+    await api("/api/pipeline/start", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({root: ACTIVE_ROOT, mode})});
+    refresh();
+  } catch (e) { logLine(`<span class="bad">✗ ${e.message}</span>`); }
+}
+
+async function stopPipeline() {
+  try {
+    await api("/api/pipeline/stop", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({root: ACTIVE_ROOT})});
+  } catch (e) { logLine(`<span class="bad">✗ ${e.message}</span>`); }
+}
 async function act(url, key) {
   try {
     await api(url, {method: "POST", headers: {"Content-Type": "application/json"},
