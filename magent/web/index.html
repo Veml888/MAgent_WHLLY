@@ -160,6 +160,10 @@
   .inline-file { font-size: 13px; color: var(--soft); }
   .inline-file input { border: none; padding: 0; background: transparent; box-shadow: none; }
   .inline-file input:focus-visible { outline: none; }
+  .path-row { display: flex; gap: 8px; }
+  .path-row input { flex: 1; }
+  .path-row button { padding: 8px 14px; font-size: 13.5px; white-space: nowrap; }
+  #recent_wrap select { max-width: 230px; }
 
   /* ============ 设置视图（覆盖全屏） ============ */
   #settingsView {
@@ -230,7 +234,12 @@
     </div>
     <div class="panel">
       <div class="grid4">
-        <div><label>项目路径</label><input id="proj_root" class="mono" placeholder="D:\AAA-MMW\projects\2026A"></div>
+        <div><label>项目路径</label>
+          <div class="path-row">
+            <input id="proj_root" class="mono" placeholder="D:\数模\2026A">
+            <button id="browse_btn" class="hidden" onclick="browseFolder()" title="选择文件夹">浏览…</button>
+          </div>
+        </div>
         <div><label>题目标题</label><input id="proj_title" placeholder="如：2026 国赛 A 题"></div>
         <div><label>侧重点</label>
           <select id="proj_focus">
@@ -246,6 +255,11 @@
         <span class="inline-file">题面文件：<input id="proj_files" type="file" multiple accept=".pdf,.docx,.md,.txt,.doc"></span>
         <button class="primary" onclick="createProject()">创建项目</button>
         <button onclick="loadProject()">打开已有项目</button>
+        <span id="recent_wrap" class="hidden">
+          <select id="recent_sel" onchange="openRecent(this.value)">
+            <option value="">最近的项目…</option>
+          </select>
+        </span>
         <span class="msg" id="proj_msg"></span>
       </div>
     </div>
@@ -501,6 +515,38 @@ async function refreshKeyBanner() {
 
 /* ============ 项目与工序（主界面） ============ */
 
+async function browseFolder() {
+  const api = window.pywebview && window.pywebview.api;
+  if (!api || !api.choose_folder) {
+    msg("proj_msg", "当前模式不支持文件夹选择，请手动输入路径", false);
+    return;
+  }
+  try {
+    const picked = await api.choose_folder();
+    if (picked) $("proj_root").value = picked;
+  } catch (e) { msg("proj_msg", "打开文件夹选择器失败：" + e.message, false); }
+}
+
+async function openRecent(root) {
+  if (!root) return;
+  $("proj_root").value = root;
+  await loadProject();
+  $("recent_sel").value = "";
+}
+
+function renderRecent(list) {
+  $("recent_sel").innerHTML = '<option value="">最近的项目…</option>' +
+    (list || []).map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
+  $("recent_wrap").classList.toggle("hidden", !(list && list.length));
+}
+
+async function refreshRecent() {
+  try {
+    const m = await api("/api/meta");
+    renderRecent(m.recent_projects || []);
+  } catch (e) { /* 忽略 */ }
+}
+
 async function createProject() {
   const root = $("proj_root").value.trim();
   if (!root) return msg("proj_msg", "请填写项目路径", false);
@@ -515,7 +561,7 @@ async function createProject() {
     await api("/api/project", {method: "POST", body: fd});
     currentRoot = root; localStorage.setItem("magent_root", root);
     msg("proj_msg", "已创建", true);
-    subscribe(); refresh();
+    refreshRecent(); subscribe(); refresh();
   } catch (e) { msg("proj_msg", e.message, false); }
 }
 async function loadProject() {
@@ -525,6 +571,8 @@ async function loadProject() {
     await api("/api/state?root=" + encodeURIComponent(root));
     currentRoot = root; localStorage.setItem("magent_root", root);
     msg("proj_msg", "已打开", true);
+    api("/api/recent", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({root})}).then(refreshRecent).catch(() => {});
     subscribe(); refresh();
   } catch (e) { msg("proj_msg", e.message, false); }
 }
@@ -600,11 +648,27 @@ async function markNA(key) {
 async function boot() {
   try { META = await api("/api/meta"); } catch (e) {}
   $("ver").textContent = "MAgent v" + (META.version || "");
+  renderRecent(META.recent_projects || []);
+  if (!$("proj_root").value && META.default_projects_dir) {
+    $("proj_root").placeholder = META.default_projects_dir + "\\2026A";
+  }
   await refreshKeyBanner();
   if (currentRoot) { $("proj_root").value = currentRoot; subscribe(); }
   refresh();
   timer = setInterval(refresh, 4000);
 }
+
+// 桌面窗口（pywebview）就绪后显示原生「浏览…」按钮；浏览器模式不支持
+window.addEventListener("pywebviewready", () => {
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.choose_folder) {
+    $("browse_btn").classList.remove("hidden");
+  }
+});
+setTimeout(() => {
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.choose_folder) {
+    $("browse_btn").classList.remove("hidden");
+  }
+}, 1200);
 boot();
 </script>
 </body>

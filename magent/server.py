@@ -12,7 +12,7 @@ import time
 from collections import deque
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -120,13 +120,16 @@ def version():
 
 @app.get("/api/meta")
 def meta():
-    """给前端用的元信息：阶段清单（设置页做路由用）。"""
+    """给前端用的元信息：阶段清单（设置页做路由用）+ 最近项目。"""
+    cfg = config_mod.load()
     return {
         "version": __version__,
         "stages": [
             {"key": key, "title": pipeline.STAGES[key].title, "skill": pipeline.STAGES[key].skill}
             for key in pipeline.ORDER
         ],
+        "recent_projects": cfg.get("recent_projects", []),
+        "default_projects_dir": str(Path.home() / "Documents" / "MAgent项目"),
     }
 
 
@@ -218,19 +221,20 @@ def test_config(body: dict | None = None):
 
 # ---------- 项目 ----------
 
-class ProjectIn(BaseModel):
-    root: str
-    title: str
-    focus: str = "均衡"
-    subproblems: str = "待赛题分析确定"
-
-
 @app.post("/api/project")
-async def create_project(project: ProjectIn, files: list[UploadFile] | None = None):
+async def create_project(
+    root: str = Form(...),
+    title: str = Form(""),
+    focus: str = Form("均衡"),
+    subproblems: str = Form("待赛题分析确定"),
+    files: list[UploadFile] | None = File(default=None),
+):
+    """浏览器以 multipart/form-data 提交（含题面文件），故用 Form/File 解析。"""
     cfg = config_mod.load()
-    root = Path(project.root).resolve()
-    if root.exists() and (root / "project-manifest.json").is_file():
-        raise HTTPException(409, "该目录已存在 project-manifest.json，请换一个路径")
+    root_path = Path(root).expanduser().resolve()
+    if root_path.exists() and (root_path / "project-manifest.json").is_file():
+        raise HTTPException(409, "该目录已是一个 MAgent 项目（已存在 project-manifest.json）。"
+                                 "想继续它请用「打开已有项目」，新建请换一个空目录。")
     problem_files = []
     for upload in files or []:
         content = await upload.read()
@@ -239,22 +243,35 @@ async def create_project(project: ProjectIn, files: list[UploadFile] | None = No
     try:
         skills_root, _source = resolve_skills_root(cfg)
         engine.init_project(
-            root=root,
-            title=project.title or "未命名题目",
-            prefs={"focus": project.focus, "subproblems": project.subproblems},
+            root=root_path,
+            title=title or "未命名题目",
+            prefs={"focus": focus, "subproblems": subproblems},
             problem_files=problem_files,
             skills_root=skills_root,
         )
     except Exception as exc:
         raise HTTPException(500, f"项目初始化失败：{exc}")
-    config_mod.add_recent_project(cfg, str(root))
+    config_mod.add_recent_project(cfg, str(root_path))
     config_mod.save(cfg)
-    return _state_payload(root)
+    return _state_payload(root_path)
 
 
 @app.get("/api/state")
 def state(root: str):
     return _state_payload(_get_root(root))
+
+
+class RecentIn(BaseModel):
+    root: str
+
+
+@app.post("/api/recent")
+def mark_recent(body: RecentIn):
+    root = _get_root(body.root)
+    cfg = config_mod.load()
+    config_mod.add_recent_project(cfg, str(root))
+    config_mod.save(cfg)
+    return {"ok": True, "recent_projects": cfg["recent_projects"]}
 
 
 @app.get("/api/events")

@@ -209,13 +209,26 @@ def _serve(host: str, port: int, no_window: bool = False) -> int:
         try:
             import webview
 
+            class NativeApi:
+                """暴露给页面的原生能力（文件夹选择，浏览器模式不可用）。"""
+
+                def choose_folder(self):
+                    windows = webview.windows
+                    if not windows:
+                        return None
+                    result = windows[0].create_file_dialog(webview.FOLDER_DIALOG)
+                    if not result:
+                        return None
+                    return result[0] if isinstance(result, (list, tuple)) else str(result)
+
             webview.create_window(
                 "MAgent · 数模全流程 Agent",
                 url,
                 width=1280,
                 height=840,
                 min_size=(960, 640),
-                background_color="#f5f6f8",
+                background_color="#0C0F14",
+                js_api=NativeApi(),
             )
             console.print(f"[bold green]MAgent v{__version__} 已启动（桌面窗口）：{url}[/bold green]")
             webview.start()
