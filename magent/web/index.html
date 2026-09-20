@@ -310,26 +310,26 @@
     </div>
     <div class="panel">
       <div class="grid4">
-        <div><label>项目路径</label>
-          <div class="path-row">
-            <input id="proj_root" class="mono" placeholder="D:\数模\2026A">
-            <button id="browse_btn" class="hidden" onclick="browseFolder()" title="选择文件夹">浏览…</button>
-          </div>
-        </div>
         <div><label>题目标题</label><input id="proj_title" placeholder="如：2026 国赛 A 题"></div>
         <div><label>侧重点</label>
           <select id="proj_focus">
             <option>均衡</option><option>精度优先</option>
             <option>可解释性优先</option><option>速度优先</option>
           </select></div>
+        <div><label>项目路径（填标题后自动生成，也可自选）</label>
+          <div class="path-row">
+            <input id="proj_root" class="mono" placeholder="自动生成">
+            <button id="browse_btn" class="hidden" onclick="browseFolder()" title="选择文件夹">浏览…</button>
+          </div>
+        </div>
       </div>
       <div class="row">
-        <span class="inline-file">题面文件：<input id="proj_files" type="file" multiple accept=".pdf,.docx,.doc,.md,.txt,.csv,.xlsx,.xls,.zip,.png,.jpg,.jpeg" onchange="updateFileSummary()"></span>
-        <span class="inline-file">
-          <button onclick="document.getElementById('proj_dir').click()">选择数据文件夹…</button>
-          <input id="proj_dir" type="file" webkitdirectory multiple class="hidden" onchange="updateFileSummary()">
-        </span>
+        <button onclick="document.getElementById('proj_files').click()">选择题面文件…</button>
+        <input id="proj_files" type="file" multiple class="hidden" accept=".pdf,.docx,.doc,.md,.txt,.csv,.xlsx,.xls,.zip,.png,.jpg,.jpeg" onchange="updateFileSummary()">
+        <button onclick="document.getElementById('proj_dir').click()">上传附件文件夹…</button>
+        <input id="proj_dir" type="file" webkitdirectory multiple class="hidden" onchange="updateFileSummary()">
         <span class="hint" id="file_summary"></span>
+        <span class="spacer"></span>
         <button class="primary" onclick="createProject()">创建项目</button>
         <button onclick="loadProject()">打开已有项目</button>
         <span id="recent_wrap" class="hidden">
@@ -804,7 +804,7 @@ async function browseFolder() {
   }
   try {
     const picked = await api.choose_folder();
-    if (picked) $("proj_root").value = picked;
+    if (picked) { $("proj_root").value = picked; pathLocked = true; }
   } catch (e) { msg("proj_msg", "打开文件夹选择器失败：" + e.message, false); }
 }
 
@@ -832,7 +832,29 @@ function updateFileSummary() {
   const n1 = $("proj_files").files.length;
   const n2 = $("proj_dir").files.length;
   const total = n1 + n2;
-  $("file_summary").textContent = total ? `已选 ${total} 个文件` + (n2 ? "（含文件夹）" : "") : "";
+  $("file_summary").textContent = total
+    ? `已选 ${total} 个文件` + (n2 ? `（含文件夹内 ${n2} 个）` : "")
+    : "";
+}
+
+/* 项目路径：按标题自动生成到默认位置（用户手动改过就不再覆盖） */
+let pathLocked = false;
+
+function sanitizeName(name) {
+  return String(name).replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function autoFillPath() {
+  if (pathLocked) return;
+  const title = $("proj_title").value.trim();
+  const base = String(META.default_projects_dir || "").replace(/[\\/]+$/, "");
+  if (!title || !base) return;
+  $("proj_root").value = base + "\\" + sanitizeName(title);
+}
+
+function wirePathAutoFill() {
+  $("proj_title").addEventListener("input", autoFillPath);
+  $("proj_root").addEventListener("input", () => { pathLocked = true; });
 }
 
 async function createProject() {
@@ -850,8 +872,12 @@ async function createProject() {
     await api("/api/project", {method: "POST", body: fd});
     await markActive(root);
     msg("proj_msg", "已创建", true);
+    pathLocked = true;   // 已建项目，避免改标题时把路径改走
     refreshRecent(); subscribe(); refresh(); refreshWorkspaces(true);
     $("proj_files").value = ""; $("proj_dir").value = ""; updateFileSummary();
+    // 为下一道题做准备：清空标题、解锁路径，让新标题重新自动生成路径
+    $("proj_title").value = "";
+    pathLocked = false;
   } catch (e) { msg("proj_msg", e.message, false); }
 }
 async function loadProject() {
@@ -860,6 +886,7 @@ async function loadProject() {
   try {
     await api("/api/state?root=" + encodeURIComponent(root));
     await markActive(root);
+    pathLocked = true;
     msg("proj_msg", "已打开", true);
     api("/api/recent", {method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({root})}).then(refreshRecent).catch(() => {});
@@ -987,6 +1014,7 @@ async function boot() {
     $("proj_root").placeholder = META.default_projects_dir + "\\2026A";
   }
   await refreshKeyBanner();
+  wirePathAutoFill();
   await refreshWorkspaces(true);
   if (ACTIVE_ROOT) { $("proj_root").value = ACTIVE_ROOT; subscribe(); }
   refresh();
