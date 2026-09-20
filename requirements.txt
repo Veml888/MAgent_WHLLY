@@ -3,7 +3,7 @@ fastapi>=0.110
 uvicorn>=0.29
 rich>=13.0
 PyMuPDF>=1.24
-jsonschema>=4.20
+jsonschema>=4.26.0
 python-multipart>=0.0.9
 pywebview>=6.0
 
