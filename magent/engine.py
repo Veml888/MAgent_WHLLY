@@ -286,6 +286,7 @@ def run_stage(
     cfg: dict,
     log=_noop_log,
     llm: LLMClient | None = None,
+    should_stop=None,
 ) -> StageResult:
     """运行一个阶段：agent 会话 + 门禁重试回路 + 记账。
 
@@ -378,11 +379,14 @@ def run_stage(
         transcript_path=root / ".magent" / "sessions" / f"{stage_key}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl",
         log=log,
         max_turns=int(limits.get("max_turns", 150)),
+        should_stop=should_stop,
     )
 
     retry_rounds = int(limits.get("retry_rounds", 3))
     prompt = first_prompt
     for round_no in range(retry_rounds + 1):
+        if should_stop and should_stop():
+            return StageResult(stage_key, "stopped", "用户请求停止")
         try:
             outcome = session.run(prompt)
         except FinishSignal as signal:
@@ -395,6 +399,9 @@ def run_stage(
             return StageResult(stage_key, "paused", f"模型调用失败：{exc}")
 
         if not isinstance(outcome, FinishSignal):
+            if outcome == "stopped":
+                log({"type": "stage", "msg": f"{stage.title}：已停止（可随时点「继续」接着跑）"})
+                return StageResult(stage_key, "stopped", "用户请求停止")
             detail = {  # type: ignore[comparison-overlap]
                 "max_turns": f"已达最大轮数 {limits.get('max_turns', 150)}，请点「继续修复」续跑",
                 "no_progress": "模型连续无工具调用，请点「继续修复」续跑",

@@ -221,6 +221,9 @@
     font-family: var(--mono); font-size: 13.5px; line-height: 1.85; white-space: pre-wrap; word-break: break-all;
   }
   #log .t { color: #5C6875; }
+  #log .think { color: #8B93A1; font-style: italic; }
+  #log .used { color: var(--hold); font-family: var(--mono); font-size: 12px; }
+  .stop .usedtime { font-family: var(--mono); font-size: 11.5px; color: var(--soft); margin: 2px 0 6px; }
   #log .ok { color: var(--pass); } #log .bad { color: var(--fail); } #log .dim { color: var(--soft); }
   .inline-file { font-size: 13px; color: var(--soft); }
   .inline-file input { border: none; padding: 0; background: transparent; box-shadow: none; }
@@ -869,6 +872,7 @@ function renderEvent(e) {
     else if (e.type === "tool_call") logLine(`${t} <span class="dim">→ ${e.name}(${(e.args || "").slice(0, 140)})</span>`);
     else if (e.type === "gate") { logLine(`${t} <span class="${e.ok ? "ok" : e.skipped ? "dim" : "bad"}">${e.skipped ? "— 跳过" : e.ok ? "✔ 通过" : "✘ 未过"} 门禁 ${e.name} (exit ${e.exit_code})</span>`); scheduleWsRefresh(); }
     else if (e.type === "file_written") { logLine(`${t} <span class="dim">写入 ${e.path}</span>`); scheduleWsRefresh(); }
+    else if (e.type === "reasoning") logLine(`${t} <span class="think">💭 思考：${e.text}</span>`);
     else if (e.type === "assistant_text") logLine(`${t} <span class="dim">${e.text}</span>`);
     else if (e.type === "error") logLine(`${t} <span class="bad">✗ ${e.msg}</span>`);
   }
@@ -889,17 +893,18 @@ async function refresh() {
     $("init_banner_text").textContent = `${ACTIVE_ROOT} 还不是 MAgent 项目`;
   }
 
-  // 全流程运行状态：运行中显示停止、隐藏启动；否则按钮文案随进度变化
-  const running = !!st.pipeline_running;
+  // 运行状态：任何任务（全流程或单阶段）在跑时都显示「停止」
+  const busy = !!st.pipeline_running || !!st.running_stage || (st.stages || []).some(s => s.running);
   const doneCount = (st.stages || []).filter(s => ["complete", "n_a"].includes(s.status)).length;
   const label = doneCount === 0 ? "▶&nbsp;全自动运行" : "▶&nbsp;继续（全自动）";
   const stepLabel = doneCount === 0 ? "▶&nbsp;逐步运行" : "▶&nbsp;继续（逐步）";
   $("pipe_auto_btn").innerHTML = label;
   $("pipe_step_btn").innerHTML = stepLabel;
-  $("pipe_auto_btn").classList.toggle("hidden", running);
-  $("pipe_step_btn").classList.toggle("hidden", running);
-  $("pipe_stop_btn").classList.toggle("hidden", !running);
-  $("pipe_hint").textContent = running ? "全流程运行中…" : (doneCount ? `已完成 ${doneCount}/8` : "");
+  $("pipe_auto_btn").classList.toggle("hidden", busy);
+  $("pipe_step_btn").classList.toggle("hidden", busy);
+  $("pipe_stop_btn").classList.toggle("hidden", !busy);
+  const runningTitle = st.running_stage ? (pipeline_title(st.running_stage) + " 运行中…") : "全流程运行中…";
+  $("pipe_hint").textContent = busy ? runningTitle : (doneCount ? `已完成 ${doneCount}/8` : "");
 
   const box = $("stages"); box.innerHTML = "";
   for (const s of st.stages) {
@@ -917,9 +922,14 @@ async function refresh() {
     if (s.status === "in_progress") {
       actions += `<button onclick="fixStage('${s.key}')">${s.running ? "运行中…" : "继续修复"}</button>`;
     }
+    const tt = (st.stage_times || {})[s.key];
+    const usedText = s.running
+      ? `⏱ ${fmtDuration(s.elapsed ?? st.stage_elapsed ?? 0)}`
+      : (tt ? `⏱ 上次 ${fmtDuration(tt.seconds)}` : "");
     div.innerHTML = `
       <div class="dot"></div>
       <div class="name">${s.title}</div>
+      ${usedText ? `<div class="usedtime">${usedText}</div>` : ""}
       <div><span class="pill st-${s.status}"><i></i><span class="label">${STATUS_TEXT[s.status] || s.status}</span></span></div>
       <div class="actions">${actions}</div>`;
     box.appendChild(div);
@@ -938,10 +948,32 @@ async function startPipeline(mode) {
 }
 
 async function stopPipeline() {
+  const btn = $("pipe_stop_btn");
+  btn.disabled = true;
   try {
-    await api("/api/pipeline/stop", {method: "POST", headers: {"Content-Type": "application/json"},
+    await api("/api/stop", {method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({root: ACTIVE_ROOT})});
-  } catch (e) { logLine(`<span class="bad">✗ ${e.message}</span>`); }
+    logLine('<span class="bad">⏹ 已请求停止，正在中断当前步骤…</span>');
+  } catch (e) {
+    logLine(`<span class="bad">✗ ${e.message}</span>`);
+  } finally {
+    setTimeout(() => { btn.disabled = false; }, 4000);
+    refresh();
+  }
+}
+
+/* 阶段 key → 中文名（用于运行提示） */
+function fmtDuration(sec) {
+  const s = Math.max(0, Math.round(sec || 0));
+  if (s < 60) return s + " 秒";
+  const m = Math.floor(s / 60), r = s % 60;
+  if (m < 60) return m + " 分 " + r + " 秒";
+  return Math.floor(m / 60) + " 时 " + (m % 60) + " 分";
+}
+
+function pipeline_title(key) {
+  const found = (META.stages || []).find(s => s.key === key);
+  return found ? found.title : key;
 }
 async function act(url, key) {
   try {

@@ -58,6 +58,8 @@ class LLMClient:
             raise LLMError(f"模型调用失败：{exc}") from exc
 
         choice = resp.choices[0].message
+        # 部分推理模型（如 deepseek-reasoner）会额外返回思考过程
+        reasoning = getattr(choice, "reasoning_content", None) or getattr(choice, "reasoning", None) or ""
         tool_calls = []
         for call in choice.tool_calls or []:
             tool_calls.append(
@@ -73,6 +75,7 @@ class LLMClient:
             self.total_completion_tokens += getattr(usage, "completion_tokens", 0) or 0
         return {
             "content": choice.content or "",
+            "reasoning": str(reasoning),
             "tool_calls": tool_calls,
             "usage": {
                 "prompt_tokens": self.total_prompt_tokens,

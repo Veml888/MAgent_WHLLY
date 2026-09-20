@@ -38,7 +38,9 @@ class Runtime:
         self.cond = threading.Condition()
         self.running_stage: str | None = None
         self.running_pipeline = False   # 全流程（自动按序跑）是否在运行
-        self.pipeline_stop = False      # 请求：当前阶段跑完后停止
+        self.pipeline_stop = False      # 请求：全流程在当前阶段结束后停止
+        self.stop_requested = False     # 请求：立即中断当前 agent 会话
+        self.stage_started_at: float | None = None   # 当前阶段开始时间（用于显示用时）
 
     def log(self, event: dict) -> None:
         with self.cond:
@@ -81,6 +83,46 @@ def _get_root(root: str) -> Path:
     return path
 
 
+STAGE_TIME_FILE = ".magent/stage-times.json"
+
+
+def _record_stage_time(root: Path, stage_key: str, started_at: float) -> None:
+    """把某阶段的用时写入项目内 .magent/stage-times.json（供界面显示）。"""
+    import json as _json
+
+    seconds = max(0.0, time.time() - started_at)
+    path = root / STAGE_TIME_FILE
+    data: dict = {}
+    if path.is_file():
+        try:
+            data = _json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+    prev = data.get(stage_key) or {}
+    data[stage_key] = {
+        "seconds": round(seconds, 1),
+        "total_seconds": round(float(prev.get("total_seconds") or 0) + seconds, 1),
+        "runs": int(prev.get("runs") or 0) + 1,
+        "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _read_stage_times(root: Path) -> dict:
+    import json as _json
+
+    path = root / STAGE_TIME_FILE
+    if not path.is_file():
+        return {}
+    try:
+        return _json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
 def _state_payload(root: Path) -> dict:
     payload: dict = {"root": str(root), "version": __version__}
     try:
@@ -97,6 +139,11 @@ def _state_payload(root: Path) -> dict:
     statuses = store.summary()["stages"]
     runtime = _runtime(root)
     payload["pipeline_running"] = runtime.running_pipeline
+    payload["running_stage"] = runtime.running_stage
+    payload["stage_times"] = _read_stage_times(root)
+    payload["stage_elapsed"] = (
+        round(time.time() - runtime.stage_started_at, 1) if runtime.stage_started_at else None
+    )
     stage_list = []
     for key in pipeline.ORDER:
         stage = pipeline.STAGES[key]
@@ -107,6 +154,10 @@ def _state_payload(root: Path) -> dict:
                 "skill": stage.skill,
                 "status": statuses.get(key, "pending"),
                 "running": runtime.running_stage == key,
+                "elapsed": (
+                    round(time.time() - runtime.stage_started_at, 1)
+                    if runtime.stage_started_at and runtime.running_stage == key else None
+                ),
             }
         )
     payload["stages"] = stage_list
@@ -631,14 +682,21 @@ def _spawn_stage(root: Path, stage_key: str) -> None:
 
     def worker():
         runtime.running_stage = stage_key
+        runtime.stop_requested = False
+        runtime.stage_started_at = time.time()
         runtime.log({"type": "stage", "msg": f"▶ 启动阶段：{pipeline.STAGES[stage_key].title}"})
         try:
-            engine.run_stage(root, stage_key, cfg, log=runtime.log)
+            result = engine.run_stage(root, stage_key, cfg, log=runtime.log,
+                                      should_stop=lambda: runtime.stop_requested)
+            if getattr(result, "outcome", "") == "stopped":
+                runtime.log({"type": "stage", "msg": "⏹ 已停止（该阶段保持在「进行中」，可再点继续）"})
         except Exception as exc:  # 引擎外异常兜底
             runtime.log({"type": "error", "msg": f"引擎异常：{exc}"})
         finally:
+            _record_stage_time(root, stage_key, runtime.stage_started_at or time.time())
             runtime.running_stage = None
-            runtime.log({"type": "stage", "msg": "■ 本次运行结束"})
+            runtime.stage_started_at = None
+            runtime.log({"type": "stage", "msg": f"■ 本次运行结束（用时 {_elapsed_text(root, stage_key)}）"})
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -694,6 +752,11 @@ def _pipeline_precheck(root: Path, runtime: Runtime, cfg: dict) -> str:
     return stage_key
 
 
+def _elapsed_text(root: Path, stage_key: str) -> str:
+    info = _read_stage_times(root).get(stage_key) or {}
+    seconds = float(info.get("seconds") or 0)
+    return f"{int(seconds // 60)} 分 {int(seconds % 60)} 秒"
+
 def _spawn_pipeline(root: Path, mode: str) -> None:
     runtime = _runtime(root)
     cfg = config_mod.load()
@@ -702,6 +765,7 @@ def _spawn_pipeline(root: Path, mode: str) -> None:
     def worker():
         runtime.running_pipeline = True
         runtime.pipeline_stop = False
+        runtime.stop_requested = False
         label = "全自动" if mode == "auto" else "逐步"
         runtime.log({"type": "stage", "msg": f"▶ 全流程开始（{label}模式）"})
         try:
@@ -714,9 +778,16 @@ def _spawn_pipeline(root: Path, mode: str) -> None:
                     break
                 stage = pipeline.STAGES[stage_key]
                 runtime.running_stage = stage_key
+                runtime.stage_started_at = time.time()
                 runtime.log({"type": "stage", "msg": f"▶ 阶段：{stage.title}"})
-                result = engine.run_stage(root, stage_key, cfg, log=runtime.log)
+                result = engine.run_stage(root, stage_key, cfg, log=runtime.log,
+                                          should_stop=lambda: runtime.stop_requested)
+                _record_stage_time(root, stage_key, runtime.stage_started_at)
                 runtime.running_stage = None
+                runtime.stage_started_at = None
+                if result.outcome == "stopped":
+                    runtime.log({"type": "stage", "msg": "⏹ 全流程已停止（已完成阶段保留）"})
+                    break
                 if result.outcome not in ("complete", "already_complete"):
                     runtime.log({
                         "type": "stage",
@@ -744,6 +815,7 @@ def _spawn_pipeline(root: Path, mode: str) -> None:
             runtime.log({"type": "error", "msg": f"全流程异常：{exc}"})
         finally:
             runtime.running_stage = None
+            runtime.stage_started_at = None
             runtime.running_pipeline = False
             runtime.log({"type": "stage", "msg": "■ 全流程运行结束"})
 
@@ -759,15 +831,27 @@ def start_pipeline(body: PipelineIn):
     return {"ok": True, "mode": body.mode}
 
 
-@app.post("/api/pipeline/stop")
-def stop_pipeline(body: WorkspaceIn):
+class StopIn(BaseModel):
+    root: str
+
+
+@app.post("/api/stop")
+def stop_everything(body: StopIn):
+    """停止当前工作区正在跑的一切：立即中断 agent 会话，或让全流程不再进入下一阶段。"""
     root = _get_root(body.root)
     runtime = _runtime(root)
-    if not runtime.running_pipeline:
-        raise HTTPException(400, "当前没有在运行的全流程")
+    if runtime.running_stage is None and not runtime.running_pipeline:
+        raise HTTPException(400, "当前没有在运行的任务")
+    runtime.stop_requested = True
     runtime.pipeline_stop = True
-    runtime.log({"type": "stage", "msg": "⏸ 已请求停止：当前阶段跑完后停下"})
-    return {"ok": True}
+    runtime.log({"type": "stage", "msg": "⏹ 已请求停止，正在中断当前步骤…"})
+    return {"ok": True, "running_stage": runtime.running_stage, "pipeline": runtime.running_pipeline}
+
+
+@app.post("/api/pipeline/stop")
+def stop_pipeline(body: WorkspaceIn):
+    """兼容旧入口：等价于 /api/stop。"""
+    return stop_everything(StopIn(root=body.root))
 
 
 @app.post("/api/stage/na")

@@ -131,3 +131,94 @@ def test_upstream_blocked(project, patched_stage):
     result = run_stage(root, "analysis", cfg, log=EVENTS.append, llm=FakeLLM([]))
     assert result.outcome == "upstream_blocked", f"detail={result.detail!r} events={EVENTS!r}"
     assert store.stage_status("analysis") == "pending"
+
+
+def test_stop_interrupts_agent_loop(project, patched_stage):
+    """停止请求应在 agent 循环中立即中断（不再继续调用模型/工具）。"""
+    from fake_llm import FakeLLM
+
+    from magent.agent import AgentSession
+    from magent.tools import ToolBox
+
+    root, _skills = project
+    box = ToolBox(root)
+    # 脚本里有 3 轮，但如果中途收到停止请求，只应消费第 1 轮
+    llm = FakeLLM([
+        FakeLLM.turn(FakeLLM.tool_call(1, "write_file", {"path": "a.txt", "content": "1"})),
+        FakeLLM.turn(FakeLLM.tool_call(2, "write_file", {"path": "b.txt", "content": "2"})),
+        FakeLLM.turn(FakeLLM.tool_call(3, "write_file", {"path": "c.txt", "content": "3"})),
+    ])
+    flags = {"stop": False}
+
+    def should_stop():
+        return flags["stop"]
+
+    session = AgentSession(llm=llm, toolbox=box, system_prompt="x",
+                           transcript_path=None, max_turns=10, should_stop=should_stop)
+    # 第 1 轮执行后请求停止 → 下一轮开始时立即返回 stopped
+    original_execute = box.execute
+
+    def execute_and_request_stop(name, args):
+        result = original_execute(name, args)
+        flags["stop"] = True
+        return result
+
+    box.execute = execute_and_request_stop
+    outcome = session.run("开始")
+    assert outcome == "stopped"
+    assert (root / "a.txt").is_file()
+    assert not (root / "b.txt").exists(), "停止后不应继续执行后续轮次"
+
+
+def test_stop_before_first_turn_returns_immediately(project, patched_stage):
+    from fake_llm import FakeLLM
+
+    from magent.agent import AgentSession
+    from magent.tools import ToolBox
+
+    root, _skills = project
+    llm = FakeLLM([FakeLLM.turn(content="不该被调用")])
+    session = AgentSession(llm=llm, toolbox=ToolBox(root), system_prompt="x",
+                           transcript_path=None, should_stop=lambda: True)
+    assert session.run("开始") == "stopped"
+    assert llm.script, "停止后不应调用模型"
+
+
+def test_stop_interrupts_slow_llm_call(project, patched_stage):
+    """模型调用卡住时，停止请求应即时中断（不等调用返回）。"""
+    import time
+
+    from magent.agent import AgentSession
+    from magent.tools import ToolBox
+
+    root, _skills = project
+
+    class SlowLLM:
+        def __init__(self):
+            self.calls = 0
+            self.total_prompt_tokens = self.total_completion_tokens = 0
+
+        def chat(self, messages, tools=None):
+            self.calls += 1
+            time.sleep(30)          # 模拟卡住的调用（真实场景可能是重试/长回答）
+            return {"content": "", "tool_calls": [], "usage": {}}
+
+        @staticmethod
+        def assistant_message(raw):
+            return {"role": "assistant", "content": ""}
+
+        @staticmethod
+        def tool_message(call_id, content):
+            return {"role": "tool", "tool_call_id": call_id, "content": content}
+
+    flags = {"stop": False}
+    session = AgentSession(llm=SlowLLM(), toolbox=ToolBox(root), system_prompt="x",
+                           transcript_path=None, should_stop=lambda: flags["stop"])
+
+    import threading
+    threading.Timer(1.0, lambda: flags.update(stop=True)).start()
+    started = time.monotonic()
+    outcome = session.run("开始")
+    elapsed = time.monotonic() - started
+    assert outcome == "stopped"
+    assert elapsed < 5, f"停止应即时生效，实际等待 {elapsed:.1f}s"

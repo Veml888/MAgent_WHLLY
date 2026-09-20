@@ -39,5 +39,5 @@ class FakeLLM:
 
     @staticmethod
     def turn(*tool_calls, content=""):
-        return {"content": content, "tool_calls": list(tool_calls),
+        return {"content": content, "reasoning": "", "tool_calls": list(tool_calls),
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5}}

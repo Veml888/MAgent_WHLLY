@@ -255,7 +255,7 @@ def _stub_engine(monkeypatch, calls, mark_complete=True):
     from magent.engine import StageResult
     from magent.manifest import ManifestStore
 
-    def fake_run(root, stage_key, cfg_, log=None, llm=None):
+    def fake_run(root, stage_key, cfg_, log=None, llm=None, should_stop=None):
         calls.append(stage_key)
         if mark_complete:
             store = ManifestStore(root)
@@ -314,7 +314,7 @@ def test_pipeline_stops_on_failure(client, tmp_path, monkeypatch):
     import magent.server as srv
     from magent.engine import StageResult
 
-    def failing_run(root_, stage_key, cfg_, log=None, llm=None):
+    def failing_run(root_, stage_key, cfg_, log=None, llm=None, should_stop=None):
         calls.append(stage_key)
         return StageResult(stage_key, "paused", "需要人工处理")
 
