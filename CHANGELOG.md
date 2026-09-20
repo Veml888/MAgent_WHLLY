@@ -13,6 +13,12 @@
 - **zip 自动解压**：上传压缩包自动解压进 `data/`（含路径穿越防护），`data/` 子目录递归展示给模型
 - **内置科学计算栈**：运行环境预装 numpy / pandas / scipy / matplotlib / scikit-learn / statsmodels / sympy / networkx / pulp / openpyxl / Pillow，编程阶段与数据图阶段开箱即用
 
+### Changed
+
+- **安装包改为安装便携版整套**（内嵌 Python 运行时），不再安装单文件 exe：
+  单文件冻结程序无法作为 Python 解释器，导致门禁机检与模型解题代码无法执行
+- 移除单文件 exe 分发形态（`make_exe.py` / `exe_entry.py` 删除，CI 同步调整）
+
 ## [0.2.0] - 2026-09-20
 
 ### Added

@@ -20,7 +20,6 @@ TITLE = "MAgent v0.1.0 · 首个可用版"
 ASSETS = [
     Path(__file__).resolve().parents[1] / "dist" / "MAgent-Setup-v0.1.0.exe",
     Path(__file__).resolve().parents[1] / "dist" / "MAgent-v0.1.0-portable.zip",
-    Path(__file__).resolve().parents[1] / "dist" / "MAgent.exe",
 ]
 
 BODY = """## MAgent v0.1.0 —— 首个可用版
@@ -31,8 +30,8 @@ BYOK 接任意 OpenAI 兼容模型（默认 DeepSeek），代码级门禁保证"
 ### 下载
 
 - **普通用户（推荐）**：`MAgent-Setup-v0.1.0.exe` —— 标准安装向导，自动建快捷方式，控制面板可卸载
-- **免安装**：`MAgent.exe`（单文件，下完双击）或 `MAgent-v0.1.0-portable.zip`（绿色文件夹版）
-- 三者功能完全相同，任选其一
+- **免安装**：`MAgent-v0.1.0-portable.zip`（绿色文件夹版，解压双击「启动MAgent.bat」）
+- 两者功能完全相同，任选其一
 
 ### 使用步骤
 

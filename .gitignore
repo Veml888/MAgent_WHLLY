@@ -1,4 +1,4 @@
-# 构建产物（python scripts/build_portable.py / python scripts/make_exe.py 重新生成）
+# 构建产物（python scripts/build_portable.py / scripts/make_setup.py 重新生成）
 dist/
 build/
 

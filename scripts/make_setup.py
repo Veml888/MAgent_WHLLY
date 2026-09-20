@@ -1,11 +1,13 @@
 """构建 MAgent 安装包（dist/MAgent-Setup-v<版本>.exe）。
 
-用 Inno Setup 把单文件版 MAgent.exe 包成标准安装程序：
-向导全中文 → 默认装到用户目录（不需要管理员权限）→ 自动建桌面/开始菜单
+用 Inno Setup 把「便携版整套」（内嵌 Python 运行时 + 全部依赖 + 内置 skills）
+包成标准安装程序：向导中文 → 默认装到用户目录（免管理员）→ 自动建桌面/开始菜单
 快捷方式 → 控制面板可卸载。
 
-前置：已安装 Inno Setup 6（winget install JRSoftware.InnoSetup），
-以及 dist/MAgent.exe（先运行 python scripts/make_exe.py）。
+注意：安装的是便携版整套而非单文件 exe——单文件 exe 无法作为 Python 解释器
+执行门禁脚本与模型解题代码，不具备完整能力。
+
+前置：已运行 python scripts/build_portable.py，且已安装 Inno Setup 6。
 
 用法：python scripts/make_setup.py
 """
@@ -39,7 +41,7 @@ LicenseFile={root}\\LICENSE
 OutputDir={root}\\dist
 OutputBaseFilename=MAgent-Setup-v{version}
 SetupIconFile={root}\\assets\\magent.ico
-UninstallDisplayIcon={{app}}\\MAgent.exe
+UninstallDisplayIcon={{app}}\\magent.ico
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -52,15 +54,17 @@ CloseApplications=yes
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务："
 
 [Files]
-Source: "{root}\\dist\\MAgent.exe"; DestDir: "{{app}}"; Flags: ignoreversion
-Source: "{root}\\dist\\MAgent\\使用说明.txt"; DestDir: "{{app}}"; Flags: ignoreversion
+; 安装「便携版整套」：内嵌 Python 运行时 + 全部依赖 + 内置 skills + 启动脚本。
+; 不能用单文件 exe——它无法作为解释器执行门禁脚本与解题代码。
+Source: "{root}\\dist\\MAgent\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{root}\\assets\\magent.ico"; DestDir: "{{app}}"; Flags: ignoreversion
 
 [Icons]
-Name: "{{autoprograms}}\\MAgent"; Filename: "{{app}}\\MAgent.exe"
-Name: "{{autodesktop}}\\MAgent"; Filename: "{{app}}\\MAgent.exe"; Tasks: desktopicon
+Name: "{{autoprograms}}\\MAgent"; Filename: "{{app}}\\runtime\\pythonw.exe"; Parameters: "-m magent serve"; WorkingDir: "{{app}}"; IconFilename: "{{app}}\\magent.ico"
+Name: "{{autodesktop}}\\MAgent"; Filename: "{{app}}\\runtime\\pythonw.exe"; Parameters: "-m magent serve"; WorkingDir: "{{app}}"; IconFilename: "{{app}}\\magent.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{{app}}\\MAgent.exe"; Description: "立即运行 MAgent"; Flags: nowait postinstall skipifsilent
+Filename: "{{app}}\\runtime\\pythonw.exe"; Parameters: "-m magent serve"; WorkingDir: "{{app}}"; Description: "立即运行 MAgent"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{{app}}"
@@ -102,8 +106,9 @@ def get_version() -> str:
 
 
 def main() -> int:
-    if not (ROOT / "dist" / "MAgent.exe").is_file():
-        print("缺少 dist/MAgent.exe，请先运行 python make_exe.py")
+    portable = ROOT / "dist" / "MAgent"
+    if not (portable / "runtime" / "python.exe").is_file():
+        print("缺少 dist/MAgent/（便携版整套），请先运行 python scripts/build_portable.py")
         return 1
     iscc = find_iscc()
     if ensure_chinese_isl(iscc):
